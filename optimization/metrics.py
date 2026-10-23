@@ -155,5 +155,6 @@ def compute_evaluation_metrics(
         resource_utilization=resource_utilization,
         runtime_ms=plan.runtime_ms,
         solver_status=plan.solver_status,
+        is_zero_demand=(total_requested == 0),
         delta_vs_baseline=delta_vs_baseline,
     )

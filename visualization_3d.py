@@ -5,8 +5,9 @@ Renders interactive 3D digital-twin command scenes representing disaster respons
 environments, incident towers, central resource depots, and allocation conduits.
 
 Supports two rendering backends:
-1. Three.js WebGL Digital Twin (Cyberpunk / Tactical Command aesthetic).
-2. Plotly 3D Operations Scene (Offline-first fallback).
+1. Three.js WebGL Digital Twin (Hardware accelerated, spatial response grid).
+2. Plotly 3D Operations Scene (Offline-first fallback with interactive controls).
+Strictly adheres to the tactical dark command center design system with zero emojis.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ import numpy as np
 import plotly.graph_objects as go
 
 from optimization.models import Incident, Resource, AllocationPlan
+import theme
 
 
 def generate_plotly_3d_figure(
@@ -24,75 +26,77 @@ def generate_plotly_3d_figure(
     inventory: List[Resource],
     plan: AllocationPlan,
     selected_incident_id: Optional[str] = None,
+    show_critical: bool = True,
+    show_elevated: bool = True,
+    show_standard: bool = True,
+    show_conduits: bool = True,
+    show_depot: bool = True,
 ) -> go.Figure:
     """
     Generate an offline-capable interactive Plotly 3D scene of the response area.
 
     Components:
     - Ground grid plane (dark slate with tactical coordinates)
-    - Central Resource Logistics Depot (diamond node at origin)
+    - Central Resource Logistics Depot (gold diamond node at origin)
     - Incident 3D markers (elevated by priority score, colored by urgency)
     - Allocation conduit vectors connecting Depot to Incidents
     """
     fig = go.Figure()
+    n_incidents = len(incidents)
+
+    # Dynamic marker sizing based on scenario scale
+    if n_incidents <= 30:
+        base_marker_size = 14
+        show_all_text_labels = True
+    elif n_incidents <= 120:
+        base_marker_size = 9
+        show_all_text_labels = False
+    elif n_incidents <= 300:
+        base_marker_size = 6
+        show_all_text_labels = False
+    else:  # 500 incidents stress test
+        base_marker_size = 4
+        show_all_text_labels = False
 
     # 1. Central Logistics Depot at (0, 0, 0)
-    total_stock = sum(r.available_quantity for r in inventory)
-    depot_hover = f"<b>CENTRAL LOGISTICS DEPOT</b><br>Total Stock: {total_stock} units<br>"
-    for r in inventory:
-        depot_hover += f"- {r.icon} {r.resource_type}: {r.available_quantity}<br>"
+    if show_depot:
+        total_stock = sum(r.available_quantity for r in inventory)
+        depot_hover = f"<b>LOGISTICS DEPOT</b><br>Available Stock: {total_stock} units<br>"
+        for r in inventory:
+            depot_hover += f"- {r.resource_type.title()}: {r.available_quantity}<br>"
 
-    fig.add_trace(go.Scatter3d(
-        x=[0], y=[0], z=[0],
-        mode="markers+text",
-        marker=dict(
-            size=16,
-            color="#00F0FF",
-            symbol="diamond",
-            line=dict(color="#FFFFFF", width=2),
-            opacity=0.95,
-        ),
-        text=["DEPOT"],
-        textposition="top center",
-        textfont=dict(color="#00F0FF", size=11, family="monospace"),
-        name="Logistics Depot",
-        hoverinfo="text",
-        hovertext=[depot_hover],
-    ))
+        fig.add_trace(go.Scatter3d(
+            x=[0], y=[0], z=[0],
+            mode="markers+text",
+            marker=dict(
+                size=base_marker_size + 4,
+                color=theme.DEPOT_GOLD,
+                symbol="diamond",
+                line=dict(color="#FFFFFF", width=1.5),
+                opacity=0.95,
+            ),
+            text=["DEPOT"],
+            textposition="top center",
+            textfont=dict(color=theme.DEPOT_GOLD, size=10, family="monospace"),
+            name="Logistics Depot",
+            hoverinfo="text",
+            hovertext=[depot_hover],
+        ))
 
-    # 2. Incident Nodes
-    inc_x, inc_y, inc_z = [], [], []
-    inc_colors, inc_sizes, inc_texts, inc_hovers = [], [], [], []
+    # 2. Categorized Incident Nodes by Severity Status
+    groups = {
+        "selected": {"x": [], "y": [], "z": [], "texts": [], "hovers": [], "color": theme.ACCENT_CYAN, "name": "Selected Site", "size": base_marker_size + 4, "show": True},
+        "critical": {"x": [], "y": [], "z": [], "texts": [], "hovers": [], "color": theme.CRITICAL_RED, "name": "Critical Priority (>=80)", "size": base_marker_size + 1, "show": show_critical},
+        "elevated": {"x": [], "y": [], "z": [], "texts": [], "hovers": [], "color": theme.WARNING_AMBER, "name": "High Priority (50-79)", "size": base_marker_size, "show": show_elevated},
+        "normal":   {"x": [], "y": [], "z": [], "texts": [], "hovers": [], "color": theme.SUCCESS_GREEN, "name": "Standard Priority (<50)", "size": max(3, base_marker_size - 2), "show": show_standard},
+    }
 
     line_x, line_y, line_z = [], [], []
 
     for inc in incidents:
         x, y, _ = inc.coordinates
-        z = inc.priority_score  # Height reflects priority severity
+        z = inc.priority_score
 
-        inc_x.append(x)
-        inc_y.append(y)
-        inc_z.append(z)
-
-        # Priority Color Palette
-        is_selected = (selected_incident_id == inc.incident_id)
-        if is_selected:
-            c = "#00F0FF"  # Cyan highlight
-            s = 18
-        elif inc.priority_score >= 80:
-            c = "#EF4444"  # Critical Red
-            s = 14
-        elif inc.priority_score >= 50:
-            c = "#F59E0B"  # High Orange
-        else:
-            c = "#10B981"  # Moderate Green
-            s = 10
-
-        inc_colors.append(c)
-        inc_sizes.append(s)
-        inc_texts.append(inc.incident_id)
-
-        # Detailed hovercard
         alloc_map = plan.allocations.get(inc.incident_id, {})
         unmet_map = plan.unmet.get(inc.incident_id, {})
         tot_alloc = sum(alloc_map.values())
@@ -100,78 +104,102 @@ def generate_plotly_3d_figure(
         tot_req = inc.total_demand
 
         hover = (
-            f"<b>INCIDENT: {inc.incident_id}</b><br>"
+            f"<b>SITE: {inc.incident_id}</b><br>"
             f"Priority Score: <b>{inc.priority_score:.1f}</b>/100<br>"
             f"Event: {inc.event_name}<br>"
             f"Category: {inc.category}<br>"
-            f"Fulfillment: {tot_alloc}/{tot_req} units<br>"
-            f"Unmet Shortage: {tot_unmet} units<br>"
-            f"Status: {'CRITICAL' if inc.priority_score >= 80 else 'ELEVATED'}"
+            f"Fulfillment: <b>{tot_alloc}/{tot_req}</b> units<br>"
+            f"Unmet Shortage: <b style='color: {theme.CRITICAL_RED if tot_unmet > 0 else theme.SUCCESS_GREEN};'>{tot_unmet}</b> units<br>"
+            f"Status: {'CRITICAL' if inc.priority_score >= 80 else ('HIGH' if inc.priority_score >= 50 else 'STANDARD')}"
         )
-        inc_hovers.append(hover)
 
-        # Allocation Conduits from Depot (0, 0, 0) to Incident (x, y, z)
-        if tot_alloc > 0:
-            line_x.extend([0, x, None])
-            line_y.extend([0, y, None])
-            line_z.extend([0, z, None])
+        is_selected = (selected_incident_id == inc.incident_id)
+        if is_selected:
+            g_key = "selected"
+        elif inc.priority_score >= 80:
+            g_key = "critical"
+        elif inc.priority_score >= 50:
+            g_key = "elevated"
+        else:
+            g_key = "normal"
 
-    # Add Incident Nodes Trace
-    fig.add_trace(go.Scatter3d(
-        x=inc_x, y=inc_y, z=inc_z,
-        mode="markers+text",
-        marker=dict(
-            size=inc_sizes,
-            color=inc_colors,
-            symbol="circle",
-            line=dict(color="#FFFFFF", width=1),
-            opacity=0.9,
-        ),
-        text=inc_texts,
-        textposition="top center",
-        textfont=dict(color="#F8FAFC", size=10, family="sans-serif"),
-        name="Emergency Incidents",
-        hoverinfo="text",
-        hovertext=inc_hovers,
-    ))
+        if groups[g_key]["show"]:
+            groups[g_key]["x"].append(x)
+            groups[g_key]["y"].append(y)
+            groups[g_key]["z"].append(z)
+            # Display text label if selected or in small scenario
+            label_text = inc.incident_id if (is_selected or show_all_text_labels) else ""
+            groups[g_key]["texts"].append(label_text)
+            groups[g_key]["hovers"].append(hover)
 
-    # Add Allocation Conduits (Laser / Arcs)
-    if line_x:
+            # Allocation Conduits from Depot (0, 0, 0) to Incident (x, y, z)
+            if show_conduits and tot_alloc > 0:
+                line_x.extend([0, x, None])
+                line_y.extend([0, y, None])
+                line_z.extend([0, z, None])
+
+    # Add Categorized Incident Traces
+    for g_key, g_data in groups.items():
+        if g_data["x"] and g_data["show"]:
+            mode = "markers+text" if (g_key == "selected" or show_all_text_labels) else "markers"
+            fig.add_trace(go.Scatter3d(
+                x=g_data["x"], y=g_data["y"], z=g_data["z"],
+                mode=mode,
+                marker=dict(
+                    size=g_data["size"],
+                    color=g_data["color"],
+                    symbol="diamond" if g_key == "selected" else "circle",
+                    line=dict(color="#FFFFFF", width=1.5 if g_key == "selected" else 0.5),
+                    opacity=0.92,
+                ),
+                text=g_data["texts"] if mode == "markers+text" else None,
+                textposition="top center",
+                textfont=dict(color=theme.TEXT_MAIN, size=9, family="monospace"),
+                name=g_data["name"],
+                hoverinfo="text",
+                hovertext=g_data["hovers"],
+            ))
+
+    # Add Allocation Conduits (Lines from depot to incident sites)
+    if show_conduits and line_x:
         fig.add_trace(go.Scatter3d(
             x=line_x, y=line_y, z=line_z,
             mode="lines",
-            line=dict(color="#00F0FF", width=3, dash="solid"),
-            name="Resource Allocation Conduits",
+            line=dict(color=theme.ACCENT_CYAN, width=2, dash="solid"),
+            name="Allocation Conduits",
             hoverinfo="none",
         ))
 
     # Tactical Scene Layout
     fig.update_layout(
         template="plotly_dark",
-        paper_bgcolor="#0B1120",
+        paper_bgcolor=theme.APP_BG,
         scene=dict(
-            bgcolor="#0F172A",
+            bgcolor=theme.PANEL_BG,
             xaxis=dict(
-                title="Sector X (km)",
-                backgroundcolor="#0F172A",
-                gridcolor="#1E293B",
+                title=dict(text="Sector X (km)", font=dict(size=10, color=theme.TEXT_SECONDARY)),
+                backgroundcolor=theme.PANEL_BG,
+                gridcolor=theme.PANEL_BORDER,
                 showbackground=True,
-                zerolinecolor="#334155",
+                zerolinecolor=theme.PANEL_BORDER,
+                tickfont=dict(size=9, color=theme.TEXT_SECONDARY),
             ),
             yaxis=dict(
-                title="Sector Y (km)",
-                backgroundcolor="#0F172A",
-                gridcolor="#1E293B",
+                title=dict(text="Sector Y (km)", font=dict(size=10, color=theme.TEXT_SECONDARY)),
+                backgroundcolor=theme.PANEL_BG,
+                gridcolor=theme.PANEL_BORDER,
                 showbackground=True,
-                zerolinecolor="#334155",
+                zerolinecolor=theme.PANEL_BORDER,
+                tickfont=dict(size=9, color=theme.TEXT_SECONDARY),
             ),
             zaxis=dict(
-                title="Priority Elevation (Z)",
-                backgroundcolor="#0B1120",
-                gridcolor="#1E293B",
+                title=dict(text="Priority Elevation (Z)", font=dict(size=10, color=theme.TEXT_SECONDARY)),
+                backgroundcolor=theme.APP_BG,
+                gridcolor=theme.PANEL_BORDER,
                 showbackground=True,
-                zerolinecolor="#334155",
+                zerolinecolor=theme.PANEL_BORDER,
                 range=[0, 105],
+                tickfont=dict(size=9, color=theme.TEXT_SECONDARY),
             ),
             camera=dict(
                 eye=dict(x=1.6, y=-1.6, z=1.2),
@@ -180,14 +208,15 @@ def generate_plotly_3d_figure(
             aspectratio=dict(x=1.2, y=1.2, z=0.8),
         ),
         margin=dict(l=0, r=0, t=10, b=0),
-        height=520,
+        height=540,
         showlegend=True,
         legend=dict(
-            bgcolor="rgba(15, 23, 42, 0.8)",
-            bordercolor="#334155",
+            bgcolor="rgba(16, 27, 45, 0.85)",
+            bordercolor=theme.PANEL_BORDER,
             borderwidth=1,
             x=0.02,
             y=0.98,
+            font=dict(size=10, color=theme.TEXT_SECONDARY),
         ),
     )
 
@@ -202,9 +231,9 @@ def generate_threejs_html(
 ) -> str:
     """
     Generate an embedded Three.js WebGL digital-twin scene with glowing grid,
-    pulsing tactical pillars, central logistics depot, and animated particle arcs.
+    pulsing tactical pillars, central logistics depot, and allocation arcs.
+    Strictly zero emojis in HUD overlay and card inspects.
     """
-    # Prepare serializable payload
     incidents_data = []
     for inc in incidents:
         x, y, _ = inc.coordinates
@@ -241,7 +270,7 @@ def generate_threejs_html(
                 margin: 0;
                 padding: 0;
                 overflow: hidden;
-                background-color: #070B14;
+                background-color: {theme.APP_BG};
                 font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
             }}
             #canvas-container {{
@@ -251,57 +280,58 @@ def generate_threejs_html(
             }}
             .hud-overlay {{
                 position: absolute;
-                top: 12px;
-                left: 14px;
-                color: #00F0FF;
+                top: 10px;
+                left: 12px;
+                color: {theme.ACCENT_CYAN};
                 font-size: 11px;
+                font-weight: 700;
                 letter-spacing: 0.08em;
-                background: rgba(11, 17, 32, 0.85);
+                background: rgba(16, 27, 45, 0.9);
                 padding: 8px 12px;
                 border-radius: 4px;
-                border: 1px solid rgba(0, 240, 255, 0.3);
+                border: 1px solid {theme.PANEL_BORDER};
+                border-left: 3px solid {theme.ACCENT_CYAN};
                 pointer-events: none;
                 z-index: 10;
             }}
             .hud-instructions {{
                 position: absolute;
-                bottom: 12px;
-                right: 14px;
-                color: #94A3B8;
+                bottom: 10px;
+                right: 12px;
+                color: {theme.TEXT_SECONDARY};
                 font-size: 10px;
-                background: rgba(11, 17, 32, 0.8);
-                padding: 6px 10px;
+                background: rgba(16, 27, 45, 0.85);
+                padding: 5px 10px;
                 border-radius: 4px;
-                border: 1px solid #1E293B;
+                border: 1px solid {theme.PANEL_BORDER};
                 pointer-events: none;
             }}
             #inspect-card {{
                 position: absolute;
-                top: 12px;
-                right: 14px;
-                background: rgba(15, 23, 42, 0.95);
-                border: 1px solid #00F0FF;
-                border-radius: 6px;
+                top: 10px;
+                right: 12px;
+                background: rgba(16, 27, 45, 0.95);
+                border: 1px solid {theme.ACCENT_CYAN};
+                border-radius: 4px;
                 padding: 10px 14px;
-                color: #F8FAFC;
+                color: {theme.TEXT_MAIN};
                 font-size: 11px;
-                max-width: 220px;
+                max-width: 230px;
                 display: none;
                 z-index: 20;
-                box-shadow: 0 0 15px rgba(0, 240, 255, 0.2);
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
             }}
         </style>
-        <!-- Load Three.js and OrbitControls from CDN with fallback -->
         <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     </head>
     <body>
         <div class="hud-overlay">
-            <div>🛰️ RESCUEGRID 3D TACTICAL TWIN</div>
-            <div style="color: #64748B; font-size: 9px; margin-top: 2px;">ENGINE: WEBGL • REAL-TIME ALLOCATION MESH</div>
+            <div>RESCUEGRID 3D TACTICAL RESPONSE GRID</div>
+            <div style="color: {theme.TEXT_SECONDARY}; font-size: 9px; margin-top: 2px;">ENGINE: WEBGL HARDWARE ACCELERATED</div>
         </div>
         <div id="inspect-card"></div>
-        <div class="hud-instructions">Left Drag: Orbit • Right Drag: Pan • Scroll: Zoom</div>
+        <div class="hud-instructions">Left Drag: Orbit | Right Drag: Pan | Scroll: Zoom</div>
         <div id="canvas-container"></div>
 
         <script>
@@ -309,182 +339,183 @@ def generate_threejs_html(
             const container = document.getElementById('canvas-container');
             const inspectCard = document.getElementById('inspect-card');
 
-            // Scene, Camera, Renderer
-            const scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x070B14);
-            scene.fog = new THREE.FogExp2(0x070B14, 0.005);
+            if (typeof THREE === 'undefined') {{
+                container.innerHTML = `
+                    <div style="color: {theme.TEXT_MAIN}; padding: 50px 20px; text-align: center;">
+                        <h4 style="color: {theme.CRITICAL_RED}; margin-bottom: 8px;">WebGL Three.js CDN Unavailable</h4>
+                        <p style="color: {theme.TEXT_SECONDARY}; font-size: 12px; max-width: 460px; margin: 0 auto 16px auto;">
+                            External WebGL library could not be loaded from CDN. Switch to the <b>Plotly 3D</b> engine
+                            using the 3D View toggle in the left simulation controls.
+                        </p>
+                    </div>
+                `;
+            }} else {{
+                const scene = new THREE.Scene();
+                scene.background = new THREE.Color(0x080F1C);
+                scene.fog = new THREE.FogExp2(0x080F1C, 0.004);
 
-            const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 1000);
-            camera.position.set(70, 80, 90);
+                const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 1000);
+                camera.position.set(70, 80, 90);
 
-            const renderer = new THREE.WebGLRenderer({{ antialias: true, alpha: true }});
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-            renderer.shadowMap.enabled = true;
-            container.appendChild(renderer.domElement);
+                const renderer = new THREE.WebGLRenderer({{ antialias: true, alpha: true }});
+                renderer.setSize(window.innerWidth, window.innerHeight);
+                renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+                renderer.shadowMap.enabled = true;
+                container.appendChild(renderer.domElement);
 
-            // Controls
-            let controls;
-            if (typeof THREE.OrbitControls !== 'undefined') {{
-                controls = new THREE.OrbitControls(camera, renderer.domElement);
-                controls.enableDamping = true;
-                controls.dampingFactor = 0.05;
-                controls.maxPolarAngle = Math.PI / 2.05; // Prevent camera going under floor
-                controls.target.set(0, 10, 0);
-            }}
+                let controls;
+                if (typeof THREE.OrbitControls !== 'undefined') {{
+                    controls = new THREE.OrbitControls(camera, renderer.domElement);
+                    controls.enableDamping = true;
+                    controls.dampingFactor = 0.05;
+                    controls.maxPolarAngle = Math.PI / 2.05;
+                    controls.target.set(0, 10, 0);
+                }}
 
-            // Lights
-            const ambientLight = new THREE.AmbientLight(0x223344, 1.2);
-            scene.add(ambientLight);
+                const ambientLight = new THREE.AmbientLight(0x223344, 1.2);
+                scene.add(ambientLight);
 
-            const dirLight = new THREE.DirectionalLight(0x00F0FF, 1.5);
-            dirLight.position.set(50, 100, 50);
-            scene.add(dirLight);
+                const dirLight = new THREE.DirectionalLight(0x00D5E8, 1.5);
+                dirLight.position.set(50, 100, 50);
+                scene.add(dirLight);
 
-            const pointLight = new THREE.PointLight(0xFF4444, 2, 80);
-            pointLight.position.set(0, 20, 0);
-            scene.add(pointLight);
+                const pointLight = new THREE.PointLight(0xF5A623, 2, 80);
+                pointLight.position.set(0, 20, 0);
+                scene.add(pointLight);
 
-            // Tactical Grid Floor
-            const gridHelper = new THREE.GridHelper(160, 32, 0x00F0FF, 0x1E293B);
-            gridHelper.position.y = 0;
-            scene.add(gridHelper);
+                // Grid Floor
+                const gridHelper = new THREE.GridHelper(160, 32, 0x00D5E8, 0x26374D);
+                gridHelper.position.y = 0;
+                scene.add(gridHelper);
 
-            // Central Logistics Depot Hub
-            const depotGeo = new THREE.CylinderGeometry(6, 7, 4, 16);
-            const depotMat = new THREE.MeshStandardMaterial({{
-                color: 0x0284C7,
-                emissive: 0x0369A1,
-                roughness: 0.3,
-                metalness: 0.8
-            }});
-            const depot = new THREE.Mesh(depotGeo, depotMat);
-            depot.position.set(0, 2, 0);
-            scene.add(depot);
-
-            // Glowing Depot Ring
-            const ringGeo = new THREE.RingGeometry(8, 9, 32);
-            const ringMat = new THREE.MeshBasicMaterial({{
-                color: 0x00F0FF,
-                side: THREE.DoubleSide,
-                transparent: true,
-                opacity: 0.6
-            }});
-            const ring = new THREE.Mesh(ringGeo, ringMat);
-            ring.rotation.x = Math.PI / 2;
-            ring.position.y = 0.2;
-            scene.add(ring);
-
-            // Incident Meshes and Conduit Arcs
-            const interactiveObjects = [];
-
-            DATA.incidents.forEach(inc => {{
-                const height = Math.max(6, inc.priority * 0.35);
-                const pillarGeo = new THREE.BoxGeometry(4, height, 4);
-
-                let colorHex = 0x10B981; // Green
-                if (inc.selected) colorHex = 0x00F0FF;
-                else if (inc.is_critical) colorHex = 0xEF4444; // Red
-                else if (inc.priority >= 50) colorHex = 0xF59E0B; // Orange
-
-                const pillarMat = new THREE.MeshStandardMaterial({{
-                    color: colorHex,
-                    emissive: colorHex,
-                    emissiveIntensity: inc.selected ? 0.6 : 0.25,
-                    roughness: 0.2,
-                    metalness: 0.7
+                // Central Logistics Depot
+                const depotGeo = new THREE.CylinderGeometry(6, 7, 4, 16);
+                const depotMat = new THREE.MeshStandardMaterial({{
+                    color: 0x142238,
+                    emissive: 0x00D5E8,
+                    emissiveIntensity: 0.3,
+                    roughness: 0.3,
+                    metalness: 0.8
                 }});
+                const depot = new THREE.Mesh(depotGeo, depotMat);
+                depot.position.set(0, 2, 0);
+                scene.add(depot);
 
-                const pillar = new THREE.Mesh(pillarGeo, pillarMat);
-                pillar.position.set(inc.x, height / 2, inc.y);
-                pillar.userData = inc;
-                scene.add(pillar);
-                interactiveObjects.push(pillar);
-
-                // Base Status Ring around each incident
-                const incRingGeo = new THREE.RingGeometry(3, 4, 16);
-                const incRingMat = new THREE.MeshBasicMaterial({{
-                    color: colorHex,
+                const ringGeo = new THREE.RingGeometry(8, 9, 32);
+                const ringMat = new THREE.MeshBasicMaterial({{
+                    color: 0x00D5E8,
                     side: THREE.DoubleSide,
                     transparent: true,
-                    opacity: 0.4
+                    opacity: 0.6
                 }});
-                const incRing = new THREE.Mesh(incRingGeo, incRingMat);
-                incRing.rotation.x = Math.PI / 2;
-                incRing.position.set(inc.x, 0.1, inc.y);
-                scene.add(incRing);
+                const ring = new THREE.Mesh(ringGeo, ringMat);
+                ring.rotation.x = Math.PI / 2;
+                ring.position.y = 0.2;
+                scene.add(ring);
 
-                // Curved Allocation Arc from Depot to Incident
-                if (inc.total_allocated > 0) {{
-                    const curve = new THREE.QuadraticBezierCurve3(
-                        new THREE.Vector3(0, 3, 0),
-                        new THREE.Vector3(inc.x * 0.5, height + 15, inc.y * 0.5),
-                        new THREE.Vector3(inc.x, height, inc.y)
-                    );
-                    const points = curve.getPoints(24);
-                    const lineGeo = new THREE.BufferGeometry().setFromPoints(points);
-                    const lineMat = new THREE.LineBasicMaterial({{
-                        color: 0x00F0FF,
-                        transparent: true,
-                        opacity: 0.75,
-                        linewidth: 2
+                const interactiveObjects = [];
+
+                DATA.incidents.forEach(inc => {{
+                    const height = Math.max(6, inc.priority * 0.35);
+                    const pillarGeo = new THREE.BoxGeometry(4, height, 4);
+
+                    let colorHex = 0x2ECC71; // Green
+                    if (inc.selected) colorHex = 0x00D5E8;
+                    else if (inc.is_critical) colorHex = 0xF04452; // Red
+                    else if (inc.priority >= 50) colorHex = 0xF5A623; // Amber
+
+                    const pillarMat = new THREE.MeshStandardMaterial({{
+                        color: colorHex,
+                        emissive: colorHex,
+                        emissiveIntensity: inc.selected ? 0.6 : 0.2,
+                        roughness: 0.3,
+                        metalness: 0.7
                     }});
-                    const arc = new THREE.Line(lineGeo, lineMat);
-                    scene.add(arc);
+
+                    const pillar = new THREE.Mesh(pillarGeo, pillarMat);
+                    pillar.position.set(inc.x, height / 2, inc.y);
+                    pillar.userData = inc;
+                    scene.add(pillar);
+                    interactiveObjects.push(pillar);
+
+                    const incRingGeo = new THREE.RingGeometry(3, 4, 16);
+                    const incRingMat = new THREE.MeshBasicMaterial({{
+                        color: colorHex,
+                        side: THREE.DoubleSide,
+                        transparent: true,
+                        opacity: 0.35
+                    }});
+                    const incRing = new THREE.Mesh(incRingGeo, incRingMat);
+                    incRing.rotation.x = Math.PI / 2;
+                    incRing.position.set(inc.x, 0.1, inc.y);
+                    scene.add(incRing);
+
+                    // Allocation Arc
+                    if (inc.total_allocated > 0) {{
+                        const curve = new THREE.QuadraticBezierCurve3(
+                            new THREE.Vector3(0, 3, 0),
+                            new THREE.Vector3(inc.x * 0.5, height + 15, inc.y * 0.5),
+                            new THREE.Vector3(inc.x, height, inc.y)
+                        );
+                        const points = curve.getPoints(24);
+                        const lineGeo = new THREE.BufferGeometry().setFromPoints(points);
+                        const lineMat = new THREE.LineBasicMaterial({{
+                            color: 0x00D5E8,
+                            transparent: true,
+                            opacity: 0.75,
+                            linewidth: 2
+                        }});
+                        const arc = new THREE.Line(lineGeo, lineMat);
+                        scene.add(arc);
+                    }}
+                }});
+
+                const raycaster = new THREE.Raycaster();
+                const mouse = new THREE.Vector2();
+
+                function onMouseMove(event) {{
+                    const rect = renderer.domElement.getBoundingClientRect();
+                    mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+                    mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+                    raycaster.setFromCamera(mouse, camera);
+                    const intersects = raycaster.intersectObjects(interactiveObjects);
+
+                    if (intersects.length > 0) {{
+                        const d = intersects[0].object.userData;
+                        inspectCard.style.display = 'block';
+                        inspectCard.innerHTML = `
+                            <div style="font-weight: 700; color: {theme.ACCENT_CYAN};">#${{d.id}}</div>
+                            <div style="font-size: 10px; color: {theme.TEXT_SECONDARY}; margin-bottom: 4px;">PRIORITY: ${{d.priority.toFixed(1)}}/100</div>
+                            <div>Allocated: <b>${{d.total_allocated}} / ${{d.total_demand}}</b> units</div>
+                            <div>Unmet Deficit: <b style="color: ${{d.total_unmet > 0 ? '{theme.CRITICAL_RED}' : '{theme.SUCCESS_GREEN}'}}">${{d.total_unmet}}</b> units</div>
+                            <div style="font-size: 9px; color: {theme.ACCENT_CYAN}; margin-top: 4px;">Selected in command dossier</div>
+                        `;
+                        document.body.style.cursor = 'pointer';
+                    }} else {{
+                        inspectCard.style.display = 'none';
+                        document.body.style.cursor = 'default';
+                    }}
                 }}
-            }});
 
-            // Raycaster for Hover & Selection
-            const raycaster = new THREE.Raycaster();
-            const mouse = new THREE.Vector2();
+                window.addEventListener('mousemove', onMouseMove);
 
-            function onMouseMove(event) {{
-                const rect = renderer.domElement.getBoundingClientRect();
-                mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-                mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-
-                raycaster.setFromCamera(mouse, camera);
-                const intersects = raycaster.intersectObjects(interactiveObjects);
-
-                if (intersects.length > 0) {{
-                    const d = intersects[0].object.userData;
-                    inspectCard.style.display = 'block';
-                    inspectCard.innerHTML = `
-                        <div style="font-weight: 700; color: #00F0FF;">#${{d.id}}</div>
-                        <div style="font-size: 10px; color: #94A3B8; margin-bottom: 4px;">PRIORITY: ${{d.priority.toFixed(1)}}</div>
-                        <div>Allocated: <b>${{d.total_allocated}} / ${{d.total_demand}}</b> units</div>
-                        <div>Unmet Deficit: <b style="color: ${{d.total_unmet > 0 ? '#EF4444' : '#10B981'}}">${{d.total_unmet}}</b> units</div>
-                        <div style="font-size: 9px; color: #38BDF8; margin-top: 4px;">Click to inspect details panel</div>
-                    `;
-                    document.body.style.cursor = 'pointer';
-                }} else {{
-                    inspectCard.style.display = 'none';
-                    document.body.style.cursor = 'default';
+                let clock = new THREE.Clock();
+                function animate() {{
+                    requestAnimationFrame(animate);
+                    const t = clock.getElapsedTime();
+                    ring.rotation.z = t * 0.4;
+                    if (controls) controls.update();
+                    renderer.render(scene, camera);
                 }}
+                animate();
+
+                window.addEventListener('resize', () => {{
+                    camera.aspect = window.innerWidth / window.innerHeight;
+                    camera.updateProjectionMatrix();
+                    renderer.setSize(window.innerWidth, window.innerHeight);
+                }});
             }}
-
-            window.addEventListener('mousemove', onMouseMove);
-
-            // Animation Loop
-            let clock = new THREE.Clock();
-            function animate() {{
-                requestAnimationFrame(animate);
-                const t = clock.getElapsedTime();
-
-                // Rotate Depot Beacon
-                ring.rotation.z = t * 0.4;
-
-                if (controls) controls.update();
-                renderer.render(scene, camera);
-            }}
-            animate();
-
-            // Resize Handler
-            window.addEventListener('resize', () => {{
-                camera.aspect = window.innerWidth / window.innerHeight;
-                camera.updateProjectionMatrix();
-                renderer.setSize(window.innerWidth, window.innerHeight);
-            }});
         </script>
     </body>
     </html>

@@ -64,7 +64,7 @@ The platform implements both `scipy.optimize.milp` (using the HiGHS MILP solver)
 pip install -r requirements.txt
 ```
 
-### 2. Run Automated Unit Tests (21 Tests)
+### 2. Run Automated Regression Tests (33 Tests)
 ```powershell
 pytest -v
 ```
@@ -98,6 +98,7 @@ RESCUEGRID/
 │   ├── metrics.py                   # Comparative benchmarking & statistical metrics
 │   └── scenarios.py                 # 7 reproducible simulation scenarios
 ├── visualization_3d.py              # Three.js WebGL & Plotly 3D visual engines
+├── theme.py                         # Centralized dark command-center theme & color system
 ├── allocator.py                     # CLI entrypoint for MILP and greedy solvers
 ├── app.py                           # 3D Digital Twin Command Center dashboard
 ├── pipeline_utils.py                # Cached data loaders, conflict parsers, decision persistence
@@ -111,8 +112,17 @@ RESCUEGRID/
 ├── README.md                        # Documentation & verification guide
 ├── data/                            # 43,409 HumAID records, conflicts, inventory, reviews
 └── tests/
-    └── test_rescuegrid.py           # 21 automated unit tests
+    └── test_rescuegrid.py           # 33 automated unit and regression tests
 ```
+
+---
+
+## 🖥️ Tactical Workspaces
+
+1. **🕹️ Command Center:** Real-time 3D tactical digital twin (Three.js WebGL and Plotly 3D), simulation control panel, live incident dossier, and operational status ribbon.
+2. **⚖️ Evidence & Conflicts:** Conflict signal distribution, TF-IDF cosine similarity inspector, side-by-side claim verification, and persistent analyst triage decision audit queue.
+3. **📊 Resource Optimization:** 5 comprehensive visual analytics charts (Solver comparison, inventory utilization, objective penalties, trade-off narrative, and full allocation matrix).
+4. **📈 Performance & Evaluation:** Cross-scenario benchmark suite comparing MILP vs. Greedy fulfillment across all 7 scenarios with equity and runtime metrics.
 
 ---
 

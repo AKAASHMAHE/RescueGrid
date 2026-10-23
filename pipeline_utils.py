@@ -506,9 +506,9 @@ def build_scenario_from_historical_reports(
 
     # Standard regional inventory
     inventory = [
-        Resource("ambulance", available_quantity=6, urgency_weight=1.5, color_hex="#EF4444", icon="🚑"),
-        Resource("rescue_team", available_quantity=5, urgency_weight=1.3, color_hex="#F59E0B", icon="🚒"),
-        Resource("water_kit", available_quantity=15, urgency_weight=1.0, color_hex="#0284C7", icon="💧"),
+        Resource("ambulance", available_quantity=6, urgency_weight=1.5, color_hex="#EF4444", icon=""),
+        Resource("rescue_team", available_quantity=5, urgency_weight=1.3, color_hex="#F59E0B", icon=""),
+        Resource("water_kit", available_quantity=15, urgency_weight=1.0, color_hex="#0284C7", icon=""),
     ]
 
     return Scenario(
@@ -519,4 +519,56 @@ def build_scenario_from_historical_reports(
         inventory=inventory,
         notes="Incident priority and evidence text are DATA-OBSERVED from HumAID. Operational resource demands are SYNTHETIC.",
     )
+
+
+# -----------------------------------------------------------------------------
+# 5. STATE & SCENARIO REGISTRY SYNCHRONIZATION HELPERS
+# -----------------------------------------------------------------------------
+
+def validate_active_scenario_id(
+    active_id: Optional[str],
+    available_ids: List[str],
+    default_id: str = "SCENARIO_SEVERE_SHORTAGE",
+) -> Tuple[str, int]:
+    """
+    Safely validate active scenario ID against available registry IDs.
+    Returns:
+        (verified_active_id, valid_index)
+    Guarantees:
+        - If active_id in available_ids -> returns (active_id, available_ids.index(active_id))
+        - If active_id invalid/stale -> falls back to default_id (if present) or available_ids[0]
+        - If available_ids empty -> returns ("", -1)
+        - Never throws ValueError under any circumstance
+    """
+    if not available_ids:
+        return "", -1
+
+    if active_id and active_id in available_ids:
+        return active_id, available_ids.index(active_id)
+
+    if default_id in available_ids:
+        return default_id, available_ids.index(default_id)
+
+    return available_ids[0], 0
+
+
+def validate_selected_incident_id(
+    selected_id: Optional[str],
+    available_incident_ids: List[str],
+) -> Optional[str]:
+    """
+    Safely validate selected incident ID against active scenario incidents.
+    Returns:
+        verified_id (str or None)
+    Guarantees:
+        - If available_incident_ids is empty -> None
+        - If selected_id in available_incident_ids -> selected_id
+        - Otherwise -> available_incident_ids[0]
+    """
+    if not available_incident_ids:
+        return None
+    if selected_id and selected_id in available_incident_ids:
+        return selected_id
+    return available_incident_ids[0]
+
 

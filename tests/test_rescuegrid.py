@@ -344,3 +344,210 @@ def test_historical_incident_synthesis():
         assert len(sc.incidents) > 0
         assert len(sc.inventory) == 3
 
+
+# =============================================================================
+# 6. REGRESSION TESTS: SCENARIO SELECTION, STATE SYNC & ZERO-DEMAND CONVENTIONS
+# =============================================================================
+
+def test_validate_active_scenario_id_valid():
+    """Verify a valid active scenario ID is preserved with its exact index."""
+    available = ["SCENARIO_1", "SCENARIO_2", "SCENARIO_3"]
+    active_id, idx = utils.validate_active_scenario_id("SCENARIO_2", available)
+    assert active_id == "SCENARIO_2"
+    assert idx == 1
+
+
+def test_validate_active_scenario_id_unknown_fallback():
+    """Verify an unknown/stale scenario ID safely falls back to default without ValueError."""
+    available = ["SCENARIO_1", "SCENARIO_SEVERE_SHORTAGE", "SCENARIO_3"]
+    # Simulates the exact crash: 'HISTORICAL_ECUADOR_EARTHQUAKE_2016' is not in list
+    active_id, idx = utils.validate_active_scenario_id("HISTORICAL_ECUADOR_EARTHQUAKE_2016", available, default_id="SCENARIO_SEVERE_SHORTAGE")
+    assert active_id == "SCENARIO_SEVERE_SHORTAGE"
+    assert idx == 1
+
+
+def test_validate_active_scenario_id_removed_scenario():
+    """Verify safe fallback when a previously active scenario is deleted from registry."""
+    available = ["SCENARIO_A", "SCENARIO_B"]
+    active_id, idx = utils.validate_active_scenario_id("DELETED_SCENARIO", available, default_id="SCENARIO_NONEXISTENT")
+    # Falls back to first available scenario when default is also absent
+    assert active_id == "SCENARIO_A"
+    assert idx == 0
+
+
+def test_validate_active_scenario_id_empty_registry():
+    """Verify empty scenario registry is handled gracefully without crash."""
+    active_id, idx = utils.validate_active_scenario_id("ANY_ID", [])
+    assert active_id == ""
+    assert idx == -1
+
+
+def test_validate_active_scenario_id_order_change():
+    """Verify scenario index updates consistently if registry order changes."""
+    available_v1 = ["SC_A", "SC_B", "SC_C"]
+    available_v2 = ["SC_C", "SC_A", "SC_B"]
+    _, idx_1 = utils.validate_active_scenario_id("SC_B", available_v1)
+    _, idx_2 = utils.validate_active_scenario_id("SC_B", available_v2)
+    assert idx_1 == 1
+    assert idx_2 == 2
+
+
+def test_validate_selected_incident_id_reset():
+    """Verify selecting an incident that does not exist in the active scenario resets safely."""
+    scenario_incidents = ["INC-101", "INC-102", "INC-103"]
+    # When switching scenarios, previous selected ID might be 'INC-701'
+    verified_inc = utils.validate_selected_incident_id("INC-701", scenario_incidents)
+    assert verified_inc == "INC-101"
+
+    # When valid
+    assert utils.validate_selected_incident_id("INC-102", scenario_incidents) == "INC-102"
+
+    # When incident list is empty
+    assert utils.validate_selected_incident_id("ANY_INC", []) is None
+
+
+def test_zero_demand_convention_flag():
+    """Verify zero-demand convention is explicitly identified to avoid misleading 100% success."""
+    import optimization as opt
+    scenarios = opt.get_all_scenarios()
+    sc_zero = scenarios["SCENARIO_ZERO_DEMAND"]
+
+    plan = opt.solve_resource_allocation(sc_zero.incidents, sc_zero.inventory)
+    metrics = opt.compute_evaluation_metrics(sc_zero.incidents, sc_zero.inventory, plan)
+
+    assert metrics.total_requested == 0
+    assert metrics.total_allocated == 0
+    assert metrics.is_zero_demand is True
+    assert metrics.overall_fulfillment_pct == 100.0  # Mathematical convention preserved with explicit flag
+
+
+def test_large_scale_scenario_generation():
+    """Verify large-scale scenario generator produces exact target incident counts and unique IDs."""
+    from optimization.scenarios import generate_scaled_scenario
+
+    scales = [
+        ("Small", 25, 5),
+        ("Medium", 100, 7),
+        ("Large", 250, 9),
+        ("Stress Test", 500, 10),
+    ]
+
+    for scale_name, expected_incidents, expected_resources in scales:
+        sc = generate_scaled_scenario("SEVERE_SHORTAGE", scale_name=scale_name, seed=123)
+        assert len(sc.incidents) == expected_incidents, f"Failed count for {scale_name}"
+        assert len(sc.inventory) == expected_resources, f"Failed res count for {scale_name}"
+
+        # Verify ID uniqueness
+        ids = [inc.incident_id for inc in sc.incidents]
+        assert len(ids) == len(set(ids)), f"Duplicate IDs detected in {scale_name}"
+
+        # Verify priority bounds [0, 100]
+        for inc in sc.incidents:
+            assert 0.0 <= inc.priority_score <= 100.0
+            assert inc.total_demand >= 0
+
+        # Verify independent inventory
+        for res in sc.inventory:
+            assert res.available_quantity >= 0
+
+
+def test_large_scale_seed_reproducibility():
+    """Verify fixed seeds produce strictly deterministic scenario output."""
+    from optimization.scenarios import generate_scaled_scenario
+
+    sc1 = generate_scaled_scenario("MIXED_PRIORITIES", scale_name="Medium", seed=42)
+    sc2 = generate_scaled_scenario("MIXED_PRIORITIES", scale_name="Medium", seed=42)
+
+    assert len(sc1.incidents) == len(sc2.incidents)
+    for i in range(len(sc1.incidents)):
+        assert sc1.incidents[i].incident_id == sc2.incidents[i].incident_id
+        assert sc1.incidents[i].priority_score == sc2.incidents[i].priority_score
+        assert sc1.incidents[i].demands == sc2.incidents[i].demands
+        assert sc1.incidents[i].coordinates == sc2.incidents[i].coordinates
+
+
+def test_large_scale_milp_solver_500_incidents():
+    """Verify MILP optimizer solves 500-incident stress test cleanly with strict constraint satisfaction."""
+    import time
+    from optimization.scenarios import generate_scaled_scenario
+    from optimization.optimizer import solve_resource_allocation
+
+    sc = generate_scaled_scenario("SEVERE_SHORTAGE", scale_name="Stress Test", seed=42)
+    assert len(sc.incidents) == 500
+
+    t0 = time.perf_counter()
+    plan = solve_resource_allocation(sc.incidents, sc.inventory)
+    solve_duration = time.perf_counter() - t0
+
+    assert plan.is_optimal is True
+    assert plan.solver_status == "OPTIMAL"
+    assert solve_duration < 30.0  # Must terminate within reasonable operational threshold
+
+    res_names = [r.resource_type for r in sc.inventory]
+    avail_map = {r.resource_type: r.available_quantity for r in sc.inventory}
+
+    # Verify demand conservation: x[i, r] + u[i, r] == d[i, r]
+    for inc in sc.incidents:
+        alloc_map = plan.allocations[inc.incident_id]
+        unm_map = plan.unmet[inc.incident_id]
+        for r in res_names:
+            dem = inc.demands.get(r, 0)
+            assert alloc_map.get(r, 0) + unm_map.get(r, 0) == dem
+
+    # Verify resource capacity: sum_i x[i, r] <= available[r]
+    for r in res_names:
+        tot_allocated = sum(plan.allocations[inc.incident_id].get(r, 0) for inc in sc.incidents)
+        assert tot_allocated <= avail_map[r]
+
+
+def test_emoji_audit_in_scenarios_and_theme():
+    """Verify zero emojis exist in theme configuration or scenario names."""
+    import re
+    import theme
+    from optimization.scenarios import get_all_scenarios
+
+    # Regex detecting common emoji ranges
+    emoji_pattern = re.compile(
+        "[\U00010000-\U0010ffff]|"
+        "[\u2600-\u26ff]|"
+        "[\u2700-\u27bf]|"
+        "[\u2300-\u23ff]|"
+        "[\u2b50-\u2b55]|"
+        "[\u200d]|"
+        "[\ufe0f]"
+    )
+
+    scenarios = get_all_scenarios()
+    for s_id, sc in scenarios.items():
+        assert not emoji_pattern.search(sc.name), f"Emoji found in scenario name: {sc.name}"
+        for res in sc.inventory:
+            assert not emoji_pattern.search(res.icon), f"Emoji found in resource icon for {res.resource_type}"
+
+    # Verify theme colors and fonts
+    assert theme.APP_BG == "#080F1C"
+    assert theme.PANEL_BG == "#101B2D"
+    assert theme.ACCENT_CYAN == "#00D5E8"
+    assert theme.CRITICAL_RED == "#F04452"
+
+
+def test_3d_visualization_scaled_rendering():
+    """Verify Plotly 3D and Three.js generator render 100 incidents without crashing."""
+    from optimization.scenarios import generate_scaled_scenario
+    from optimization.optimizer import solve_resource_allocation
+    import visualization_3d as viz3d
+
+    sc = generate_scaled_scenario("MIXED_PRIORITIES", scale_name="Medium", seed=77)
+    plan = solve_resource_allocation(sc.incidents, sc.inventory)
+
+    # Plotly 3D
+    fig = viz3d.generate_plotly_3d_figure(sc.incidents, sc.inventory, plan, selected_incident_id="INC-0001")
+    assert fig is not None
+    assert len(fig.data) >= 2  # Traces exist
+
+    # Three.js HTML
+    html = viz3d.generate_threejs_html(sc.incidents, sc.inventory, plan, selected_incident_id="INC-0001")
+    assert "INC-0001" in html
+    assert "THREE.WebGLRenderer" in html
+
+
+

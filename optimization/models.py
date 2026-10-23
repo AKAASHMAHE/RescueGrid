@@ -87,8 +87,8 @@ class Resource:
     available_quantity: int
     urgency_weight: float = 1.0  # Medical/Life-saving resources have higher priority
     unit_cost: float = 1.0
-    color_hex: str = "#0284C7"
-    icon: str = "📦"
+    color_hex: str = "#00D5E8"
+    icon: str = ""
 
     def __post_init__(self):
         self.available_quantity = int(self.available_quantity)
@@ -112,11 +112,18 @@ class Resource:
     def from_dict(cls, data: Dict[str, Any]) -> Resource:
         rtype = str(data["resource_type"]).strip()
         defaults = {
-            "ambulance": {"urgency_weight": 1.5, "color_hex": "#EF4444", "icon": "🚑"},
-            "rescue_team": {"urgency_weight": 1.3, "color_hex": "#F59E0B", "icon": "🚒"},
-            "water_kit": {"urgency_weight": 1.0, "color_hex": "#0284C7", "icon": "💧"},
+            "ambulance": {"urgency_weight": 1.5, "color_hex": "#F04452", "icon": ""},
+            "rescue_team": {"urgency_weight": 1.3, "color_hex": "#F5A623", "icon": ""},
+            "water_kit": {"urgency_weight": 1.0, "color_hex": "#00D5E8", "icon": ""},
+            "medical_kit": {"urgency_weight": 1.4, "color_hex": "#E056FD", "icon": ""},
+            "food_ration": {"urgency_weight": 0.9, "color_hex": "#2ECC71", "icon": ""},
+            "shelter_pack": {"urgency_weight": 1.1, "color_hex": "#E67E22", "icon": ""},
+            "power_generator": {"urgency_weight": 1.2, "color_hex": "#F1C40F", "icon": ""},
+            "hazmat_unit": {"urgency_weight": 1.6, "color_hex": "#9B59B6", "icon": ""},
+            "communication_node": {"urgency_weight": 1.1, "color_hex": "#3498DB", "icon": ""},
+            "boat_rescue": {"urgency_weight": 1.4, "color_hex": "#1ABC9C", "icon": ""},
         }
-        cfg = defaults.get(rtype, {"urgency_weight": 1.0, "color_hex": "#10B981", "icon": "📦"})
+        cfg = defaults.get(rtype, {"urgency_weight": 1.0, "color_hex": "#2ECC71", "icon": ""})
         return cls(
             resource_type=rtype,
             available_quantity=int(data["available_quantity"]),
@@ -174,6 +181,7 @@ class EvaluationMetrics:
     resource_utilization: Dict[str, float]
     runtime_ms: float
     solver_status: str
+    is_zero_demand: bool = False
     delta_vs_baseline: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
@@ -190,6 +198,7 @@ class EvaluationMetrics:
             "resource_utilization": self.resource_utilization,
             "runtime_ms": round(self.runtime_ms, 2),
             "solver_status": self.solver_status,
+            "is_zero_demand": self.is_zero_demand,
             "delta_vs_baseline": self.delta_vs_baseline,
         }
 
