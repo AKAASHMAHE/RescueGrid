@@ -1,0 +1,10 @@
+{
+  "similar": {
+    "TEST_A_B": {
+      "status": "CONFIRMED_DUPLICATE",
+      "notes": "Test review note",
+      "timestamp": "2026-10-23 12:51:21"
+    }
+  },
+  "conflicts": {}
+}

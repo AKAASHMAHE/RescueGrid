@@ -1,11 +1,15 @@
 """
 RESCUEGRID - Resource Allocation Engine
 ---------------------------------------
+Emergency Resource Optimization and Decision-Support Engine.
+Supports both Mixed-Integer Linear Programming (MILP) solver and Greedy Baseline.
+
 Decision-support prototype. Uses synthetic demo inventory and needs.
 It does NOT dispatch real emergency resources.
 
 Run:
-    python allocator.py
+    python allocator.py --solver milp
+    python allocator.py --solver greedy
     python allocator.py --incidents data/demo_incidents.csv --inventory data/resource_inventory.csv
 """
 
@@ -14,7 +18,12 @@ from __future__ import annotations
 import argparse
 import csv
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Any
+
+from optimization.models import Incident, Resource, AllocationPlan
+from optimization.optimizer import solve_resource_allocation
+from optimization.baseline import solve_greedy_baseline
+from optimization.metrics import compute_evaluation_metrics
 
 
 PROJECT_DIR = Path(__file__).resolve().parent
@@ -104,75 +113,82 @@ def validate_inputs(incidents: List[dict], inventory: List[dict]) -> None:
             raise ValueError(f"Inventory quantity cannot be negative: {resource}")
 
 
-def allocate_resources(
-    incidents: List[dict], inventory: List[dict]
+def dicts_to_objects(incidents: List[dict], inventory: List[dict]) -> Tuple[List[Incident], List[Resource]]:
+    """Convert raw input dictionaries to optimization domain objects."""
+    res_objs = [Resource.from_dict(row) for row in inventory]
+    res_names = [r.resource_type for r in res_objs]
+    inc_objs = [Incident.from_dict(row, res_names) for row in incidents]
+    return inc_objs, res_objs
+
+
+def plan_to_legacy_formats(
+    incidents: List[Incident],
+    inventory: List[Resource],
+    plan: AllocationPlan,
 ) -> Tuple[List[dict], List[dict]]:
-    """
-    Greedy allocation: process highest priority first and fulfill each
-    resource need as far as remaining stock allows.
-
-    This is a transparent baseline, not a globally optimal solver.
-    Equal-priority incidents are ordered by incident_id for reproducibility.
-    """
-    validate_inputs(incidents, inventory)
-
-    remaining: Dict[str, int] = {
-        row["resource_type"]: int(row["available_quantity"])
-        for row in inventory
-    }
-
-    ordered = sorted(
-        incidents,
-        key=lambda row: (-float(row["priority_score"]), row["incident_id"])
-    )
-
+    """Convert AllocationPlan to legacy assignments and shortages dictionaries."""
     assignments = []
     shortages = []
 
-    for incident in ordered:
-        incident_id = incident["incident_id"]
-        score = float(incident["priority_score"])
+    res_names = [r.resource_type for r in inventory]
+
+    for inc in incidents:
+        inc_id = inc.incident_id
+        score = inc.priority_score
+        alloc_map = plan.allocations.get(inc_id, {})
+        unmet_map = plan.unmet.get(inc_id, {})
+
         incident_assignments = []
         incident_shortages = []
 
-        for resource_type, need_column in RESOURCE_COLUMNS.items():
-            requested = int(incident[need_column])
-            available_before = remaining.get(resource_type, 0)
-            allocated = min(requested, available_before)
-            remaining[resource_type] = available_before - allocated
-            unmet = requested - allocated
+        for r_name in res_names:
+            requested = inc.demands.get(r_name, 0)
+            allocated = alloc_map.get(r_name, 0)
+            unmet = unmet_map.get(r_name, 0)
 
-            incident_assignments.append(
-                f"{resource_type}={allocated}/{requested}"
-            )
+            incident_assignments.append(f"{r_name}={allocated}/{requested}")
 
-            if unmet:
-                incident_shortages.append(
-                    f"{resource_type}: unmet {unmet}"
-                )
+            if unmet > 0:
+                incident_shortages.append(f"{r_name}: unmet {unmet}")
                 shortages.append({
-                    "incident_id": incident_id,
+                    "incident_id": inc_id,
                     "priority_score": score,
-                    "resource_type": resource_type,
+                    "resource_type": r_name,
                     "requested": requested,
                     "allocated": allocated,
                     "unmet": unmet,
                 })
 
         assignments.append({
-            "incident_id": incident_id,
+            "incident_id": inc_id,
             "priority_score": score,
             "allocations": "; ".join(incident_assignments),
             "unmet_needs": "; ".join(incident_shortages) or "None",
-            "decision_reason": (
-                "Processed in descending priority order; allocations limited "
-                "by remaining inventory."
-            ),
+            "decision_reason": plan.decision_reasons.get(inc_id, plan.trade_off_explanation),
             "review_status": "HUMAN_APPROVAL_REQUIRED",
             "data_status": "SYNTHETIC_DEMO_INPUT",
+            "solver_type": plan.solver_type,
         })
 
     return assignments, shortages
+
+
+def allocate_resources(
+    incidents: List[dict], inventory: List[dict], solver: str = "milp"
+) -> Tuple[List[dict], List[dict]]:
+    """
+    Solve resource allocation using either MILP optimizer or greedy baseline.
+    Maintains backward compatibility with teammate's function signature.
+    """
+    validate_inputs(incidents, inventory)
+    inc_objs, res_objs = dicts_to_objects(incidents, inventory)
+
+    if solver.lower() == "greedy":
+        plan = solve_greedy_baseline(inc_objs, res_objs)
+    else:
+        plan = solve_resource_allocation(inc_objs, res_objs)
+
+    return plan_to_legacy_formats(inc_objs, res_objs, plan)
 
 
 def write_csv(path: Path, rows: List[dict], fieldnames: List[str]) -> None:
@@ -184,7 +200,7 @@ def write_csv(path: Path, rows: List[dict], fieldnames: List[str]) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="RESCUEGRID allocation demo")
+    parser = argparse.ArgumentParser(description="RESCUEGRID allocation engine")
     parser.add_argument(
         "--incidents", type=Path, default=DATA_DIR / "demo_incidents.csv"
     )
@@ -194,18 +210,22 @@ def main() -> None:
     parser.add_argument(
         "--output", type=Path, default=DATA_DIR / "allocation_results.csv"
     )
+    parser.add_argument(
+        "--solver", type=str, choices=["milp", "greedy"], default="milp",
+        help="Allocation algorithm: 'milp' (Mixed-Integer Linear Programming) or 'greedy' (Priority-First Baseline)"
+    )
     args = parser.parse_args()
 
     incidents = read_csv(args.incidents)
     inventory = read_csv(args.inventory)
-    assignments, shortages = allocate_resources(incidents, inventory)
+    assignments, shortages = allocate_resources(incidents, inventory, solver=args.solver)
 
     write_csv(
         args.output,
         assignments,
         [
             "incident_id", "priority_score", "allocations", "unmet_needs",
-            "decision_reason", "review_status", "data_status",
+            "decision_reason", "review_status", "data_status", "solver_type",
         ],
     )
 
@@ -220,7 +240,8 @@ def main() -> None:
     )
 
     print("\nRESCUEGRID allocation summary")
-    print("=" * 40)
+    print("=" * 45)
+    print(f"Solver Engine: {args.solver.upper()}")
     print(f"Incidents considered: {len(incidents)}")
     print(f"Resource types: {len(inventory)}")
     print(f"Incidents with unmet needs: {len({x['incident_id'] for x in shortages})}")
@@ -229,7 +250,7 @@ def main() -> None:
     print("\nRecommendations (human approval required):")
     for row in assignments:
         print(
-            f"- {row['incident_id']} | priority {row['priority_score']:.1f} | "
+            f"- {row['incident_id']} | priority {float(row['priority_score']):.1f} | "
             f"{row['allocations']} | Unmet: {row['unmet_needs']}"
         )
 

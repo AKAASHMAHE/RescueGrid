@@ -11,6 +11,7 @@ from pathlib import Path
 import os
 import re
 from typing import Dict, List, Optional, Tuple, Any
+import numpy as np
 import pandas as pd
 
 # Paths
@@ -405,3 +406,117 @@ def inspect_pipeline_health() -> List[Dict[str, Any]]:
         })
 
     return results
+
+
+REVIEWS_FILE = DATA_DIR / "analyst_reviews.json"
+
+
+def load_analyst_decisions() -> Dict[str, Any]:
+    """Load persisted human review decisions from local JSON without altering source data."""
+    if not REVIEWS_FILE.exists():
+        return {"similar": {}, "conflicts": {}}
+    try:
+        import json
+        with REVIEWS_FILE.open("r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {"similar": {}, "conflicts": {}}
+
+
+def save_analyst_decision(category: str, key: str, status: str, notes: str = "") -> None:
+    """Save an analyst decision to local storage safely."""
+    import json
+    from datetime import datetime
+    data = load_analyst_decisions()
+    if category not in data:
+        data[category] = {}
+    data[category][key] = {
+        "status": status,
+        "notes": notes,
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    with REVIEWS_FILE.open("w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+
+
+def build_scenario_from_historical_reports(
+    reports_df: pd.DataFrame,
+    event_name: str,
+    top_n: int = 5,
+) -> Optional[Any]:
+    """
+    Synthesize an actionable simulation scenario from real historical HumAID reports.
+    Pulls top-priority reports from the event, uses their real text and scores,
+    and associates illustrative resource demands for optimization testing.
+    """
+    from optimization.models import Incident, Resource, Scenario
+
+    if reports_df is None or reports_df.empty:
+        return None
+
+    subset = reports_df.copy()
+    if "event_name" in subset.columns and event_name:
+        subset = subset[subset["event_name"] == event_name]
+
+    if subset.empty:
+        return None
+
+    p_col = "priority_score_numeric" if "priority_score_numeric" in subset.columns else "priority_score"
+    if p_col in subset.columns:
+        subset["_sort_score"] = pd.to_numeric(subset[p_col], errors="coerce").fillna(0)
+        subset = subset.sort_values("_sort_score", ascending=False)
+
+    top_rows = subset.head(top_n)
+    incidents = []
+
+    # Distribute incidents across 3D coordinates around depot
+    angles = np.linspace(0, 2 * np.pi, len(top_rows), endpoint=False)
+    radius = 35.0
+
+    for idx, (_, row) in enumerate(top_rows.iterrows()):
+        inc_id = f"HIST-{str(row.get('tweet_id', idx))[:8]}"
+        p_val = float(row.get("_sort_score", row.get("priority_score", 65.0)))
+        cat = str(row.get("humanitarian_category", "urgent_needs"))
+        text = str(row.get("tweet_text", ""))
+
+        # Heuristic resource demand scaled by priority category
+        if cat in ["casualties", "urgent_needs"]:
+            dem = {"ambulance": 3, "rescue_team": 2, "water_kit": 4}
+        elif cat == "evacuation":
+            dem = {"ambulance": 1, "rescue_team": 2, "water_kit": 6}
+        elif cat == "infrastructure_damage":
+            dem = {"ambulance": 1, "rescue_team": 2, "water_kit": 3}
+        else:
+            dem = {"ambulance": 1, "rescue_team": 1, "water_kit": 2}
+
+        x = round(radius * np.cos(angles[idx]), 1)
+        y = round(radius * np.sin(angles[idx]), 1)
+
+        incidents.append(Incident(
+            incident_id=inc_id,
+            priority_score=p_val,
+            demands=dem,
+            category=cat,
+            event_name=str(row.get("event_name", event_name)),
+            coordinates=(x, y, 0.0),
+            evidence_summary=text[:160] + "..." if len(text) > 160 else text,
+            verified=False,
+        ))
+
+    # Standard regional inventory
+    inventory = [
+        Resource("ambulance", available_quantity=6, urgency_weight=1.5, color_hex="#EF4444", icon="🚑"),
+        Resource("rescue_team", available_quantity=5, urgency_weight=1.3, color_hex="#F59E0B", icon="🚒"),
+        Resource("water_kit", available_quantity=15, urgency_weight=1.0, color_hex="#0284C7", icon="💧"),
+    ]
+
+    return Scenario(
+        scenario_id=f"HISTORICAL_{event_name.upper()}",
+        name=f"Historical Synthesis: {event_name.replace('_', ' ').title()}",
+        description=f"Generated from top {len(incidents)} real priority reports in {event_name}.",
+        incidents=incidents,
+        inventory=inventory,
+        notes="Incident priority and evidence text are DATA-OBSERVED from HumAID. Operational resource demands are SYNTHETIC.",
+    )
+

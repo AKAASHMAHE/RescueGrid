@@ -217,3 +217,130 @@ def test_run_allocation_simulation_metrics():
     assert metrics["total_requested"] == 4
     assert metrics["total_allocated"] == 4
     assert metrics["total_unmet"] == 0
+
+
+# =============================================================================
+# 5. OPTIMIZATION ENGINE & MILP CONSTRAINTS TESTS
+# =============================================================================
+
+def test_milp_solver_basic_constraints():
+    """Verify MILP solver strictly satisfies capacity, demand conservation, and integrality."""
+    import optimization as opt
+
+    incidents = [
+        opt.Incident("I-1", 90.0, {"ambulance": 3, "rescue_team": 2}),
+        opt.Incident("I-2", 80.0, {"ambulance": 2, "rescue_team": 3}),
+        opt.Incident("I-3", 70.0, {"ambulance": 1, "rescue_team": 1}),
+    ]
+    inventory = [
+        opt.Resource("ambulance", available_quantity=4, urgency_weight=1.5),
+        opt.Resource("rescue_team", available_quantity=3, urgency_weight=1.3),
+    ]
+
+    plan = opt.solve_resource_allocation(incidents, inventory)
+    assert plan.is_optimal
+    assert plan.solver_status == "OPTIMAL"
+
+    # Check 1: Capacity constraints (sum_i x[i, r] <= available[r])
+    total_amb_alloc = sum(plan.allocations[inc.incident_id]["ambulance"] for inc in incidents)
+    total_res_alloc = sum(plan.allocations[inc.incident_id]["rescue_team"] for inc in incidents)
+    assert total_amb_alloc <= 4
+    assert total_res_alloc <= 3
+
+    # Check 2: Demand conservation and bounds (x[i, r] + u[i, r] == demand[i, r])
+    for inc in incidents:
+        for r in ["ambulance", "rescue_team"]:
+            dem = inc.demands[r]
+            alloc = plan.allocations[inc.incident_id][r]
+            unm = plan.unmet[inc.incident_id][r]
+            assert alloc >= 0
+            assert unm >= 0
+            assert isinstance(alloc, int)
+            assert isinstance(unm, int)
+            assert alloc <= dem
+            assert alloc + unm == dem
+
+
+def test_milp_solver_edge_cases():
+    """Verify zero inventory and zero demand edge cases execute safely without crash."""
+    import optimization as opt
+
+    incidents = [opt.Incident("I-1", 85.0, {"ambulance": 2, "water_kit": 4})]
+    zero_inv = [opt.Resource("ambulance", 0), opt.Resource("water_kit", 0)]
+
+    # Zero Inventory
+    p_zero_inv = opt.solve_resource_allocation(incidents, zero_inv)
+    assert p_zero_inv.is_optimal
+    assert p_zero_inv.allocations["I-1"]["ambulance"] == 0
+    assert p_zero_inv.unmet["I-1"]["ambulance"] == 2
+
+    # Zero Demand
+    zero_dem_inc = [opt.Incident("I-Z", 50.0, {"ambulance": 0, "water_kit": 0})]
+    some_inv = [opt.Resource("ambulance", 5), opt.Resource("water_kit", 5)]
+    p_zero_dem = opt.solve_resource_allocation(zero_dem_inc, some_inv)
+    assert p_zero_dem.is_optimal
+    assert p_zero_dem.allocations["I-Z"]["ambulance"] == 0
+    assert p_zero_dem.unmet["I-Z"]["ambulance"] == 0
+
+
+def test_milp_vs_greedy_divergence_equity():
+    """Verify Scenario 7 demonstrates greedy starvation vs MILP equitable guarantee."""
+    import optimization as opt
+
+    scenarios = opt.get_all_scenarios()
+    sc = scenarios["SCENARIO_GREEDY_VS_OPTIMIZER"]
+
+    greedy_plan = opt.solve_greedy_baseline(sc.incidents, sc.inventory)
+    milp_plan = opt.solve_resource_allocation(sc.incidents, sc.inventory, policy="MIN_SERVICE_GUARANTEE")
+
+    metrics = opt.compute_evaluation_metrics(sc.incidents, sc.inventory, milp_plan, baseline_plan=greedy_plan)
+
+    # In Greedy, INC-703 was completely starved of all resources (0 units allocated)
+    assert sum(greedy_plan.allocations["INC-703"].values()) == 0
+
+    # In MILP with Minimum Service Guarantee, INC-703 gets at least 1 unit
+    assert sum(milp_plan.allocations["INC-703"].values()) >= 1
+
+    # Overall fulfillment remains optimal
+    assert metrics.delta_vs_baseline["identical_allocations"] is False
+
+
+def test_all_preconfigured_scenarios_execute():
+    """Verify all pre-configured simulation scenarios solve without errors on both engines."""
+    import optimization as opt
+
+    scenarios = opt.get_all_scenarios()
+    assert len(scenarios) >= 7
+
+    for sc_id, sc in scenarios.items():
+        g_plan = opt.solve_greedy_baseline(sc.incidents, sc.inventory)
+        m_plan = opt.solve_resource_allocation(sc.incidents, sc.inventory)
+        assert g_plan.solver_status in ["OPTIMAL", "FEASIBLE"]
+        assert m_plan.solver_status in ["OPTIMAL", "FEASIBLE"]
+
+        g_met = opt.compute_evaluation_metrics(sc.incidents, sc.inventory, g_plan)
+        m_met = opt.compute_evaluation_metrics(sc.incidents, sc.inventory, m_plan)
+        assert 0.0 <= g_met.overall_fulfillment_pct <= 100.0
+        assert 0.0 <= m_met.overall_fulfillment_pct <= 100.0
+
+
+def test_analyst_decision_persistence():
+    """Verify saving and reloading analyst decisions survives and records timestamps."""
+    utils.save_analyst_decision("similar", "TEST_A_B", "CONFIRMED_DUPLICATE", "Test review note")
+    loaded = utils.load_analyst_decisions()
+    assert "similar" in loaded
+    assert "TEST_A_B" in loaded["similar"]
+    assert loaded["similar"]["TEST_A_B"]["status"] == "CONFIRMED_DUPLICATE"
+    assert loaded["similar"]["TEST_A_B"]["notes"] == "Test review note"
+
+
+def test_historical_incident_synthesis():
+    """Verify synthesizing simulation scenario from real reports dataframe."""
+    reports_df, _ = utils.load_reports_dataset()
+    if reports_df is not None and "event_name" in reports_df.columns:
+        event = reports_df["event_name"].iloc[0]
+        sc = utils.build_scenario_from_historical_reports(reports_df, event_name=event, top_n=3)
+        assert sc is not None
+        assert len(sc.incidents) > 0
+        assert len(sc.inventory) == 3
+

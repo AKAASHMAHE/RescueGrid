@@ -1,1125 +1,843 @@
 """
-RESCUEGRID - Evidence-Aware Emergency Intelligence Dashboard
-============================================================
-Emergency Operations Intelligence Platform for Disaster Social Media Analysis,
-Similarity Grouping, Potential Conflict Review, Priority Scoring, and Resource Allocation.
+RESCUEGRID — 3D Emergency Command Center & Optimization Engine
+=============================================================
+Next-generation tactical command center for disaster social media intelligence,
+conflict reconciliation, priority scoring, and mixed-integer linear programming (MILP)
+resource allocation under severe supply constraints.
 
 Decision-Support Prototype. All conflict signals and priority scores are heuristic.
-All resource inventory and incident needs in the allocator are synthetic demo inputs.
-Human approval is required for all actions.
+Inventory values and incident resource demands are synthetic demonstration inputs.
+Human authorization is required for all real-world dispatch decisions.
 """
 
 from pathlib import Path
 import sys
 import pandas as pd
+import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-# Import centralized pipeline utilities
+# Centralized RESCUEGRID engine imports
 import pipeline_utils as utils
-import allocator
+import optimization as opt
+import visualization_3d as viz3d
 
 # -----------------------------------------------------------------------------
-# 1. PAGE SETUP & THEME CONFIGURATION
+# 1. PAGE SETUP & DIGITAL TWIN COMMAND THEME CSS
 # -----------------------------------------------------------------------------
 
 st.set_page_config(
-    page_title="RESCUEGRID | Emergency Intelligence Operations",
-    page_icon="🛡️",
+    page_title="RESCUEGRID | 3D Emergency Command Center",
+    page_icon="🛰️",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# Professional Emergency Intelligence Dark Theme CSS
-CUSTOM_CSS = """
+# Tactical Dark Command Center CSS (inspired by NEXAI Digital Twin aesthetic)
+TACTICAL_THEME_CSS = """
 <style>
-    /* Dark Navy & Slate Command Center Theme */
+    /* Dark Slate & Navy Command Background */
     .stApp {
-        background-color: #0B1120;
+        background-color: #070B14;
         color: #F1F5F9;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace, sans-serif;
     }
     
     /* Sidebar Styling */
     section[data-testid="stSidebar"] {
-        background-color: #0F172A;
+        background-color: #0B1120;
         border-right: 1px solid #1E293B;
     }
     
-    /* Header & Titles */
-    h1, h2, h3, h4 {
-        color: #F8FAFC !important;
-        font-weight: 600;
-        letter-spacing: -0.02em;
-    }
-    
-    /* Top Banner / Cards */
-    .emergency-banner {
-        background: linear-gradient(90deg, #1E293B 0%, #0F172A 100%);
-        border-left: 4px solid #EF4444;
-        padding: 14px 20px;
+    /* Top Status Bar */
+    .top-status-bar {
+        background: linear-gradient(90deg, #0F172A 0%, #131E32 50%, #0F172A 100%);
+        border: 1px solid #1E293B;
+        border-bottom: 2px solid #00F0FF;
         border-radius: 6px;
-        margin-bottom: 20px;
-        border-top: 1px solid #334155;
-        border-right: 1px solid #334155;
-        border-bottom: 1px solid #334155;
+        padding: 10px 18px;
+        margin-bottom: 16px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        box-shadow: 0 4px 12px rgba(0, 240, 255, 0.08);
     }
     
-    .emergency-banner-title {
-        font-size: 15px;
-        font-weight: 700;
-        color: #F8FAFC;
-        margin-bottom: 4px;
+    .status-brand {
+        font-size: 16px;
+        font-weight: 800;
+        letter-spacing: 0.05em;
+        color: #00F0FF;
         display: flex;
         align-items: center;
         gap: 8px;
     }
     
-    .emergency-banner-subtitle {
-        font-size: 13px;
-        color: #94A3B8;
-        line-height: 1.4;
-    }
-    
-    /* KPI Card Component */
-    .kpi-card {
-        background-color: #131E32;
-        border: 1px solid #1E293B;
-        border-radius: 8px;
-        padding: 16px 18px;
-        margin-bottom: 12px;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
-    }
-    
-    .kpi-title {
+    .status-meta {
         font-size: 12px;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
         color: #94A3B8;
-        margin-bottom: 6px;
+        display: flex;
+        gap: 16px;
     }
     
-    .kpi-value {
-        font-size: 26px;
+    /* Tactical KPI Cards */
+    .tactical-card {
+        background-color: #0F172A;
+        border: 1px solid #1E293B;
+        border-radius: 6px;
+        padding: 14px 16px;
+        margin-bottom: 12px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+    }
+    
+    .card-title {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: #64748B;
+        margin-bottom: 4px;
+    }
+    
+    .card-value {
+        font-size: 22px;
         font-weight: 700;
         color: #F8FAFC;
         line-height: 1.1;
     }
     
-    .kpi-badge {
+    .card-subtext {
+        font-size: 11px;
+        color: #94A3B8;
+        margin-top: 4px;
+    }
+
+    /* Badges */
+    .badge-cyan { background-color: rgba(0, 240, 255, 0.15); color: #00F0FF; border: 1px solid rgba(0, 240, 255, 0.4); }
+    .badge-red { background-color: rgba(239, 68, 68, 0.15); color: #EF4444; border: 1px solid rgba(239, 68, 68, 0.4); }
+    .badge-orange { background-color: rgba(245, 158, 11, 0.15); color: #F59E0B; border: 1px solid rgba(245, 158, 11, 0.4); }
+    .badge-green { background-color: rgba(16, 185, 129, 0.15); color: #10B981; border: 1px solid rgba(16, 185, 129, 0.4); }
+
+    .tag-pill {
         display: inline-block;
         padding: 2px 8px;
         border-radius: 4px;
         font-size: 11px;
         font-weight: 600;
-        margin-top: 8px;
     }
     
-    .badge-data { background-color: #0369A1; color: #E0F2FE; }
-    .badge-rule { background-color: #B45309; color: #FEF3C7; }
-    .badge-model { background-color: #6D28D9; color: #EDE9FE; }
-    .badge-demo { background-color: #BE123C; color: #FFE4E6; }
-    .badge-safe { background-color: #047857; color: #D1FAE5; }
-
-    /* Dossier Card for Comparisons */
-    .dossier-card {
-        background-color: #131E32;
-        border: 1px solid #334155;
-        border-radius: 8px;
-        padding: 16px;
-        margin-bottom: 16px;
+    /* Streamlit tabs and headers */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
+        border-bottom: 1px solid #1E293B;
     }
     
-    /* Subdued Divider */
-    hr {
-        border-color: #1E293B;
-        margin: 24px 0;
+    .stTabs [data-baseweb="tab"] {
+        background-color: #0F172A;
+        border-radius: 4px 4px 0 0;
+        color: #94A3B8;
+        padding: 8px 16px;
+    }
+    
+    .stTabs [aria-selected="true"] {
+        background-color: #1E293B !important;
+        color: #00F0FF !important;
+        font-weight: 600;
     }
 </style>
 """
-st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
+st.markdown(TACTICAL_THEME_CSS, unsafe_allow_html=True)
 
 
 # -----------------------------------------------------------------------------
-# 2. DATA INITIALIZATION & CACHED INGESTION
+# 2. DATA LOADERS & SESSION STATE INITIALIZATION
 # -----------------------------------------------------------------------------
 
 reports_df, reports_source = utils.load_reports_dataset()
 pairs_df, pairs_source = utils.load_similarity_dataset()
 conflicts_df = utils.load_conflicts_dataset()
-allocation_bundle = utils.load_allocation_data()
+all_scenarios = opt.get_all_scenarios()
 
-allocations_df = allocation_bundle["results"]
-shortages_df = allocation_bundle["unmet"]
-inventory_df = allocation_bundle["inventory"]
-incidents_df = allocation_bundle["incidents"]
+# Session State
+if "active_scenario_id" not in st.session_state:
+    st.session_state["active_scenario_id"] = "SCENARIO_SEVERE_SHORTAGE"
 
-# Session State for Human Review
-if "similar_reviews" not in st.session_state:
-    st.session_state["similar_reviews"] = {}
+if "selected_incident_id" not in st.session_state:
+    st.session_state["selected_incident_id"] = None
 
-if "conflict_reviews" not in st.session_state:
-    st.session_state["conflict_reviews"] = {}
+if "custom_inventory_stock" not in st.session_state:
+    st.session_state["custom_inventory_stock"] = {}
+
+if "solver_policy" not in st.session_state:
+    st.session_state["solver_policy"] = "STANDARD_WEIGHTED"
+
+if "active_solver" not in st.session_state:
+    st.session_state["active_solver"] = "MILP_OPTIMIZER"
+
+if "view_3d_engine" not in st.session_state:
+    st.session_state["view_3d_engine"] = "Three.js WebGL"
+
+# Load persisted analyst reviews
+analyst_reviews = utils.load_analyst_decisions()
 
 
 # -----------------------------------------------------------------------------
-# 3. SIDEBAR NAVIGATION & PLATFORM CONTROLS
+# 3. SIDEBAR NAVIGATION
 # -----------------------------------------------------------------------------
 
 with st.sidebar:
-    st.markdown("### 🛡️ RESCUEGRID")
-    st.caption("Evidence-Aware Emergency Intelligence • v2.4")
+    st.markdown("### 🛰️ RESCUEGRID 3D")
+    st.caption("Tactical Operations & Resource Optimization • v3.0")
 
-    st.markdown(
-        """
-        <div style="background-color: #1E293B; padding: 10px; border-radius: 6px; border-left: 3px solid #EF4444; margin-bottom: 15px;">
-            <div style="font-size: 11px; font-weight: 700; color: #EF4444;">OPERATIONAL ADVISORY</div>
-            <div style="font-size: 11px; color: #CBD5E1; margin-top: 4px;">
-                Human-in-the-loop decision support. Heuristic conflict signals & synthetic demo inventory.
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    page = st.radio(
-        "Operations Center",
+    app_mode = st.radio(
+        "Operations Module",
         [
-            "🛰️ Executive Overview",
-            "🔍 Report Explorer",
-            "🔗 Similarity & Duplicates",
-            "⚖️ Conflict Review",
-            "📈 Priority Analytics",
-            "📦 Resource Allocation",
-            "🛡️ Pipeline Health",
+            "🕹️ 3D Command Center",
+            "⚖️ Evidence & Conflict Review",
+            "🔍 Historical Report Intelligence",
+            "🛡️ System Health & Diagnostics",
         ],
         index=0,
     )
 
     st.markdown("---")
-    st.markdown("#### Platform Readiness")
-    st.markdown(f"- **Reports Data:** {'✅ Ready' if reports_df is not None else '⏳ Pending'}")
-    st.markdown(f"- **Similarity Pairs:** {'✅ Ready' if pairs_df is not None else '⏳ Pending'}")
-    st.markdown(f"- **Conflict Flags:** {'✅ Ready' if conflicts_df is not None else '⏳ Pending'}")
-    st.markdown(f"- **Resource Allocator:** {'✅ Ready' if allocations_df is not None else '⏳ Pending'}")
+    st.markdown("#### Evidence Attribution Guardrail")
+    st.markdown(
+        """
+        <div style="font-size: 11px; color: #94A3B8; line-height: 1.5; background: #0F172A; padding: 10px; border-radius: 6px; border-left: 3px solid #00F0FF;">
+            <b>• DATA-OBSERVED:</b> Real HumAID tweets, events, labels.<br>
+            <b>• RULE-BASED:</b> Discrepancy flags, priority scoring.<br>
+            <b>• MODEL-DERIVED:</b> TF-IDF similarity vectors.<br>
+            <b>• SYNTHETIC:</b> 3D coords, inventories, resource demands.<br>
+            <i>Human commander approval required for dispatch.</i>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     st.markdown("---")
-    st.caption("RESCUEGRID Operations • Multi-Disaster Historical Intelligence")
+    st.caption("NEXAI 2026 Operations Prototype • VIT")
 
 
-# Helper for rendering standardized KPI card
-def render_kpi(col, title: str, value: str, badge_text: str, badge_class: str):
-    col.markdown(
+# -----------------------------------------------------------------------------
+# MODULE 1: 🕹️ 3D COMMAND CENTER & OPTIMIZATION ENGINE
+# -----------------------------------------------------------------------------
+
+if app_mode == "🕹️ 3D Command Center":
+
+    # --- A. TOP STATUS BAR ---
+    active_sc_id = st.session_state["active_scenario_id"]
+    active_scenario = all_scenarios.get(active_sc_id, all_scenarios["SCENARIO_SEVERE_SHORTAGE"])
+
+    # Check if custom inventory overrides exist
+    current_inventory = []
+    for res in active_scenario.inventory:
+        custom_qty = st.session_state["custom_inventory_stock"].get(res.resource_type, res.available_quantity)
+        current_inventory.append(opt.Resource(
+            resource_type=res.resource_type,
+            available_quantity=custom_qty,
+            urgency_weight=res.urgency_weight,
+            color_hex=res.color_hex,
+            icon=res.icon,
+        ))
+
+    current_incidents = active_scenario.incidents
+
+    # Run Solvers: Both MILP and Greedy
+    milp_plan = opt.solve_resource_allocation(
+        current_incidents,
+        current_inventory,
+        policy=st.session_state["solver_policy"],
+    )
+    greedy_plan = opt.solve_greedy_baseline(
+        current_incidents,
+        current_inventory,
+    )
+
+    # Active plan based on user selection
+    active_plan = milp_plan if st.session_state["active_solver"] == "MILP_OPTIMIZER" else greedy_plan
+    eval_metrics = opt.compute_evaluation_metrics(
+        current_incidents,
+        current_inventory,
+        active_plan,
+        baseline_plan=greedy_plan if st.session_state["active_solver"] == "MILP_OPTIMIZER" else None,
+    )
+
+    # Top Status Bar Render
+    status_color = "#10B981" if eval_metrics.overall_fulfillment_pct >= 90 else ("#F59E0B" if eval_metrics.overall_fulfillment_pct >= 50 else "#EF4444")
+    st.markdown(
         f"""
-        <div class="kpi-card">
-            <div class="kpi-title">{title}</div>
-            <div class="kpi-value">{value}</div>
-            <span class="kpi-badge {badge_class}">{badge_text}</span>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-# -----------------------------------------------------------------------------
-# PAGE 1: 🛰️ EXECUTIVE OVERVIEW
-# -----------------------------------------------------------------------------
-
-if page == "🛰️ Executive Overview":
-    st.title("🛰️ Operational Executive Overview")
-    st.caption("High-level multi-disaster situational intelligence, pipeline coverage, and resource readiness.")
-
-    # Top advisory banner
-    st.markdown(
-        """
-        <div class="emergency-banner">
-            <div class="emergency-banner-title">
-                <span>⚠️</span> SYSTEM TRUTH & EVIDENCE ATTRIBUTION
+        <div class="top-status-bar">
+            <div class="status-brand">
+                <span>🛰️</span> RESCUEGRID DIGITAL TWIN COMMAND
+                <span class="tag-pill badge-cyan" style="font-size: 10px; margin-left: 8px;">{active_scenario.name}</span>
             </div>
-            <div class="emergency-banner-subtitle">
-                All statistics below are computed directly from available project datasets.
-                Metrics distinguish <b>Data-Observed records</b> (HumAID disaster tweets),
-                <b>Rule-Based signals</b> (conflict checks and priority scores),
-                <b>Model-Derived similarities</b> (TF-IDF nearest neighbors), and
-                <b>Synthetic Demonstration data</b> (inventory & simulated needs).
+            <div class="status-meta">
+                <span>INCIDENTS: <b style="color: #F8FAFC;">{eval_metrics.incidents_count}</b></span>
+                <span>DEPOT STOCK: <b style="color: #00F0FF;">{sum(r.available_quantity for r in current_inventory)} units</b></span>
+                <span>FULFILLMENT: <b style="color: {status_color};">{eval_metrics.overall_fulfillment_pct}%</b></span>
+                <span>SOLVER: <b style="color: #00F0FF;">{st.session_state['active_solver']} ({eval_metrics.runtime_ms:.1f}ms)</b></span>
+                <span class="tag-pill badge-orange">SYNTHETIC DEMO</span>
             </div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    # Compute genuine KPIs
-    total_reports = len(reports_df) if reports_df is not None else 0
-    total_events = reports_df["event_name"].nunique() if reports_df is not None and "event_name" in reports_df.columns else 0
-    total_pairs = len(pairs_df) if pairs_df is not None else 0
-    total_conflicts = len(conflicts_df) if conflicts_df is not None else 0
-    total_incidents = len(allocations_df) if allocations_df is not None else 0
+    # --- B. THREE-COLUMN TACTICAL LAYOUT ---
+    col_ctrl, col_center, col_dossier = st.columns([1.1, 2.4, 1.2])
 
-    unmet_count = 0
-    if shortages_df is not None and not shortages_df.empty and "incident_id" in shortages_df.columns:
-        unmet_count = shortages_df["incident_id"].nunique()
+    # ---------------------------------------------------------
+    # LEFT PANEL: TACTICAL SIMULATION CONTROLS
+    # ---------------------------------------------------------
+    with col_ctrl:
+        st.markdown("#### 🎛️ Simulation Controls")
 
-    # KPI Row
-    k1, k2, k3, k4, k5 = st.columns(5)
-    render_kpi(k1, "Reports Ingested", f"{total_reports:,}" if total_reports else "Not available yet", "Data-Observed", "badge-data")
-    render_kpi(k2, "Disaster Events", f"{total_events}" if total_events else "Not available yet", "Data-Observed", "badge-data")
-    render_kpi(k3, "Candidate Pairs", f"{total_pairs:,}" if total_pairs else "Not available yet", "Model-Derived", "badge-model")
-    render_kpi(k4, "Potential Conflicts", f"{total_conflicts}" if total_conflicts else "Not available yet", "Rule-Based Signal", "badge-rule")
-    render_kpi(k5, "Shortage Incidents", f"{unmet_count}/{total_incidents}" if total_incidents else "Not available yet", "Synthetic Demo", "badge-demo")
+        # 1. Scenario Selection
+        sc_names = {s_id: s.name for s_id, s in all_scenarios.items()}
+        chosen_sc_id = st.selectbox(
+            "Select Scenario",
+            list(sc_names.keys()),
+            format_func=lambda k: sc_names[k],
+            index=list(sc_names.keys()).index(active_sc_id),
+        )
+        if chosen_sc_id != active_sc_id:
+            st.session_state["active_scenario_id"] = chosen_sc_id
+            st.session_state["custom_inventory_stock"] = {}
+            st.session_state["selected_incident_id"] = None
+            st.rerun()
 
-    st.markdown("---")
-
-    # Visual Analytics Grid
-    col_left, col_right = st.columns([1, 1])
-
-    with col_left:
-        st.subheader("Humanitarian Information Categories")
-        if reports_df is not None and "humanitarian_category" in reports_df.columns:
-            cat_counts = (
-                reports_df["humanitarian_category"]
-                .replace("", "unmapped")
-                .value_counts()
-                .reset_index()
-            )
-            cat_counts.columns = ["Category", "Reports"]
-
-            fig_cat = px.bar(
-                cat_counts.sort_values("Reports", ascending=True),
-                x="Reports",
-                y="Category",
-                orientation="h",
-                color="Reports",
-                color_continuous_scale="Blues",
-                title="Reports by Humanitarian Category (Data-Derived)",
-            )
-            fig_cat.update_layout(
-                paper_bgcolor="#0B1120",
-                plot_bgcolor="#131E32",
-                font_color="#CBD5E1",
-                height=380,
-                margin=dict(l=10, r=10, t=40, b=10),
-                coloraxis_showscale=False,
-            )
-            st.plotly_chart(fig_cat, use_container_width=True)
-        else:
-            st.info("Humanitarian categories not available yet. Run `python extract.py`.")
-
-    with col_right:
-        st.subheader("Disaster Event Distribution")
+        # Optional Historical Synthesis Event Selector
         if reports_df is not None and "event_name" in reports_df.columns:
-            event_counts = (
-                reports_df["event_name"]
-                .replace("", "unknown")
-                .value_counts()
-                .reset_index()
-            )
-            event_counts.columns = ["Event", "Reports"]
+            with st.expander("🔗 Synthesize from Historical Reports", expanded=False):
+                hist_events = sorted(reports_df["event_name"].unique())
+                sel_hist_event = st.selectbox("Historical Event", hist_events)
+                top_k = st.slider("Top Reports to Cluster", 3, 8, 4)
+                if st.button("Generate Historical Scenario", use_container_width=True):
+                    hist_scenario = utils.build_scenario_from_historical_reports(reports_df, sel_hist_event, top_n=top_k)
+                    if hist_scenario:
+                        all_scenarios[hist_scenario.scenario_id] = hist_scenario
+                        st.session_state["active_scenario_id"] = hist_scenario.scenario_id
+                        st.session_state["custom_inventory_stock"] = {}
+                        st.rerun()
 
-            fig_event = px.bar(
-                event_counts.sort_values("Reports", ascending=True),
-                x="Reports",
-                y="Event",
-                orientation="h",
-                color="Reports",
-                color_continuous_scale="Teal",
-                title="Report Volume by Disaster Event (Data-Derived)",
+        st.markdown("---")
+
+        # 2. Allocation Algorithm Selection
+        st.markdown("**Allocation Engine**")
+        algo_choice = st.radio(
+            "Solver",
+            ["MILP_OPTIMIZER", "GREEDY_BASELINE"],
+            format_func=lambda x: "🚀 MILP Optimizer (scipy.optimize.milp)" if x == "MILP_OPTIMIZER" else "⚡ Greedy Priority-First Baseline",
+            index=0 if st.session_state["active_solver"] == "MILP_OPTIMIZER" else 1,
+            label_visibility="collapsed",
+        )
+        if algo_choice != st.session_state["active_solver"]:
+            st.session_state["active_solver"] = algo_choice
+            st.rerun()
+
+        # 3. Solver Policy Options (if MILP)
+        if st.session_state["active_solver"] == "MILP_OPTIMIZER":
+            policy_choice = st.selectbox(
+                "Optimization Policy",
+                ["STANDARD_WEIGHTED", "MIN_SERVICE_GUARANTEE", "BUNDLE_AWARE"],
+                format_func=lambda p: {
+                    "STANDARD_WEIGHTED": "Standard Priority-Weighted Deficit",
+                    "MIN_SERVICE_GUARANTEE": "Minimum Service Guarantee (Anti-Starvation)",
+                    "BUNDLE_AWARE": "Bundle-Aware Critical Escalation",
+                }.get(p, p),
+                index=["STANDARD_WEIGHTED", "MIN_SERVICE_GUARANTEE", "BUNDLE_AWARE"].index(st.session_state["solver_policy"]),
             )
-            fig_event.update_layout(
-                paper_bgcolor="#0B1120",
-                plot_bgcolor="#131E32",
-                font_color="#CBD5E1",
-                height=380,
-                margin=dict(l=10, r=10, t=40, b=10),
-                coloraxis_showscale=False,
+            if policy_choice != st.session_state["solver_policy"]:
+                st.session_state["solver_policy"] = policy_choice
+                st.rerun()
+
+        st.markdown("---")
+
+        # 4. Interactive Regional Inventory Adjustments
+        st.markdown("**Depot Stock Levels**")
+        for res in active_scenario.inventory:
+            curr_val = st.session_state["custom_inventory_stock"].get(res.resource_type, res.available_quantity)
+            new_val = st.slider(
+                f"{res.icon} {res.resource_type.title()}",
+                min_value=0,
+                max_value=max(30, res.available_quantity * 3),
+                value=curr_val,
+                key=f"slider_{res.resource_type}",
             )
-            st.plotly_chart(fig_event, use_container_width=True)
+            if new_val != curr_val:
+                st.session_state["custom_inventory_stock"][res.resource_type] = new_val
+
+        col_act1, col_act2 = st.columns(2)
+        if col_act1.button("🔄 Reset Stock", use_container_width=True):
+            st.session_state["custom_inventory_stock"] = {}
+            st.rerun()
+
+        # 5. 3D View Engine Toggle
+        engine_opt = col_act2.selectbox(
+            "3D View",
+            ["Three.js WebGL", "Plotly 3D"],
+            index=0 if st.session_state["view_3d_engine"] == "Three.js WebGL" else 1,
+            label_visibility="collapsed",
+        )
+        if engine_opt != st.session_state["view_3d_engine"]:
+            st.session_state["view_3d_engine"] = engine_opt
+            st.rerun()
+
+    # ---------------------------------------------------------
+    # CENTER PANEL: INTERACTIVE 3D DIGITAL TWIN OPERATIONS SCENE
+    # ---------------------------------------------------------
+    with col_center:
+        st.markdown(
+            f"""
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <span style="font-weight: 700; color: #F8FAFC; font-size: 14px;">3D TACTICAL RESPONSE GRID</span>
+                <span style="font-size: 11px; color: #64748B;">RENDERER: {st.session_state['view_3d_engine'].upper()}</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        sel_inc_id = st.session_state["selected_incident_id"]
+
+        # Render 3D Scene based on active engine
+        if st.session_state["view_3d_engine"] == "Three.js WebGL":
+            threejs_code = viz3d.generate_threejs_html(
+                current_incidents,
+                current_inventory,
+                active_plan,
+                selected_incident_id=sel_inc_id,
+            )
+            st.components.v1.html(threejs_code, height=540)
         else:
-            st.info("Event data not available yet.")
-
-    st.markdown("---")
-
-    # Lower Grid: Triage Status and Module Verification
-    col_triage, col_pipeline = st.columns([1, 1])
-
-    with col_triage:
-        st.subheader("Triage Review & Priority Levels")
-        hint_col = "priority_level" if (reports_df is not None and "priority_level" in reports_df.columns) else "review_hint"
-        if reports_df is not None and hint_col in reports_df.columns:
-            triage_counts = reports_df[hint_col].value_counts().reset_index()
-            triage_counts.columns = ["Status", "Count"]
-
-            fig_triage = px.pie(
-                triage_counts,
-                names="Status",
-                values="Count",
-                hole=0.45,
-                color_discrete_sequence=["#EF4444", "#F59E0B", "#0284C7", "#10B981", "#64748B"],
-                title=f"Distribution of {hint_col.replace('_', ' ').title()} (Rule-Based)",
+            plotly_fig = viz3d.generate_plotly_3d_figure(
+                current_incidents,
+                current_inventory,
+                active_plan,
+                selected_incident_id=sel_inc_id,
             )
-            fig_triage.update_layout(
-                paper_bgcolor="#0B1120",
-                font_color="#CBD5E1",
-                height=340,
-                margin=dict(l=10, r=10, t=40, b=10),
+            st.plotly_chart(plotly_fig, use_container_width=True, height=540)
+
+        # Tactical Node Quick Selector below 3D viewport
+        inc_ids = [inc.incident_id for inc in current_incidents]
+        sel_idx = inc_ids.index(sel_inc_id) if sel_inc_id in inc_ids else 0
+        chosen_inc = st.selectbox(
+            "Select Incident to Inspect in Dossier Panel",
+            inc_ids,
+            index=sel_idx,
+            key="node_selector",
+        )
+        if chosen_inc != sel_inc_id:
+            st.session_state["selected_incident_id"] = chosen_inc
+            st.rerun()
+
+    # ---------------------------------------------------------
+    # RIGHT PANEL: INCIDENT & LOGISTICS DOSSIER
+    # ---------------------------------------------------------
+    with col_dossier:
+        st.markdown("#### 📋 Operational Dossier")
+
+        # Get active incident
+        target_inc = next((inc for inc in current_incidents if inc.incident_id == st.session_state["selected_incident_id"]), current_incidents[0])
+
+        alloc_map = active_plan.allocations.get(target_inc.incident_id, {})
+        unmet_map = active_plan.unmet.get(target_inc.incident_id, {})
+        inc_req_tot = target_inc.total_demand
+        inc_alloc_tot = sum(alloc_map.values())
+        inc_unmet_tot = sum(unmet_map.values())
+
+        p_badge = "badge-red" if target_inc.priority_score >= 80 else ("badge-orange" if target_inc.priority_score >= 50 else "badge-green")
+
+        st.markdown(
+            f"""
+            <div class="tactical-card" style="border-left: 3px solid {'#EF4444' if target_inc.priority_score >= 80 else '#00F0FF'};">
+                <div class="card-title">INCIDENT DOSSIER</div>
+                <div class="card-value" style="font-size: 18px;">{target_inc.incident_id}</div>
+                <div style="margin-top: 6px;">
+                    <span class="tag-pill {p_badge}">Priority: {target_inc.priority_score:.1f}/100</span>
+                    <span class="tag-pill badge-cyan">{target_inc.category}</span>
+                </div>
+                <div class="card-subtext" style="margin-top: 8px;">
+                    Event: <b>{target_inc.event_name}</b><br>
+                    Coordinates: ({target_inc.coordinates[0]:.0f}, {target_inc.coordinates[1]:.0f}, {target_inc.coordinates[2]:.0f})
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        st.markdown("**Evidence Report Excerpt:**")
+        st.info(f"\"{target_inc.evidence_summary}\"" if target_inc.evidence_summary else "No textual dispatch notes recorded for this site.")
+
+        st.markdown("**Resource Allocations & Needs:**")
+        for res in current_inventory:
+            r_name = res.resource_type
+            req = target_inc.demands.get(r_name, 0)
+            alc = alloc_map.get(r_name, 0)
+            unm = unmet_map.get(r_name, 0)
+
+            c_text = "#10B981" if unm == 0 else "#EF4444"
+            st.markdown(
+                f"""
+                <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px; padding: 4px 6px; background: #070B14; border-radius: 4px;">
+                    <span>{res.icon} {r_name.title()}</span>
+                    <span>Allocated: <b>{alc}/{req}</b> | Unmet: <b style="color: {c_text};">{unm}</b></span>
+                </div>
+                """,
+                unsafe_allow_html=True,
             )
-            st.plotly_chart(fig_triage, use_container_width=True)
-            st.caption("Rule-based review priority hints are configurable indicators, not ground-truth severity.")
-        else:
-            st.info("Review hints / priority levels not available yet.")
 
-    with col_pipeline:
-        st.subheader("Pipeline Module Readiness")
-        health_records = utils.inspect_pipeline_health()
-        health_df = pd.DataFrame(health_records)[["name", "type", "rows", "status", "modified"]]
-        health_df.columns = ["Module Output", "Stage", "Rows", "Health", "Last Modified"]
-        st.dataframe(health_df, use_container_width=True, hide_index=True, height=340)
+        st.markdown("**Allocation Decision Reason:**")
+        reason_text = active_plan.decision_reasons.get(target_inc.incident_id, "Standard triage priority.")
+        st.caption(f"💡 {reason_text}")
 
+        st.markdown("---")
+        st.markdown("**Depot Capacity Utilization**")
+        for res in current_inventory:
+            r_name = res.resource_type
+            avail = res.available_quantity
+            used = sum(active_plan.allocations.get(inc.incident_id, {}).get(r_name, 0) for inc in current_incidents)
+            util_pct = (used / avail * 100.0) if avail > 0 else 100.0
+            st.progress(min(1.0, util_pct / 100.0), text=f"{res.icon} {r_name.title()}: {used}/{avail} units ({util_pct:.0f}%)")
+
+    # --- C. BOTTOM RESULTS PANEL: COMPARISON & EVALUATION ---
     st.markdown("---")
-    st.markdown(
-        """
-        <div style="font-size: 13px; color: #94A3B8; line-height: 1.6;">
-            <b>Operational Guardrails Summary:</b><br>
-            1. Text reports reflect historical social media submissions and may be unconfirmed.<br>
-            2. High similarity scores identify candidate duplicates for deduplication review, not validated identical incidents.<br>
-            3. Discrepancy signals flag numerical or status divergence for analyst verification; they do not automatically denote misinformation.<br>
-            4. Allocator recommendations use demo inventories and a greedy baseline. Real-world dispatch is never triggered.
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    st.subheader("📊 Optimization vs. Greedy Baseline Benchmarking")
 
+    tab_eval, tab_comp, tab_narrative = st.tabs([
+        "📈 Comparative Performance Metrics",
+        "📋 Incident Assignment Matrix",
+        "💡 Important Allocation Trade-Offs",
+    ])
 
-# -----------------------------------------------------------------------------
-# PAGE 2: 🔍 REPORT EXPLORER
-# -----------------------------------------------------------------------------
+    with tab_eval:
+        m_col1, m_col2, m_col3, m_col4, m_col5 = st.columns(5)
+        m_col1.metric("Total Requested", f"{eval_metrics.total_requested} units")
+        m_col2.metric("Total Allocated", f"{eval_metrics.total_allocated} units", delta=f"{eval_metrics.overall_fulfillment_pct}% fulfilled")
+        m_col3.metric("Total Unmet Deficit", f"{eval_metrics.total_unmet} units", delta="-Shortage", delta_color="inverse")
+        m_col4.metric("Priority-Weighted Penalty", f"{eval_metrics.priority_weighted_unmet:.2f}")
+        m_col5.metric("Solver Speed", f"{eval_metrics.runtime_ms:.2f} ms", delta=eval_metrics.solver_status)
 
-elif page == "🔍 Report Explorer":
-    st.title("🔍 Emergency Report Explorer")
-    st.caption("Search, filter, and inspect disaster reports with bounded memory pagination and detailed dossier views.")
+        # Comparative Delta Card (if comparing MILP vs Baseline)
+        if eval_metrics.delta_vs_baseline:
+            d = eval_metrics.delta_vs_baseline
+            is_identical = d["identical_allocations"]
 
-    if reports_df is None:
-        st.warning("Processed reports dataset is not available yet. Please run `python extract.py`.")
-    else:
-        df = reports_df.copy()
+            if is_identical:
+                st.info(
+                    "ℹ️ **Empirical Finding:** Both the MILP Optimizer and the Greedy Priority Baseline produced the **identical** allocation plan for this scenario. "
+                    "This occurs when high-priority requests can be ordered linearly without conflicting multi-resource bottleneck trade-offs."
+                )
+            else:
+                st.success(
+                    f"🎯 **Algorithmic Divergence Detected!** "
+                    f"The MILP Optimizer produced a distinct allocation strategy compared to the Greedy Baseline. "
+                    f"Penalty difference: `{d['weighted_penalty_diff']:+.2f}` | "
+                    f"Unmet unit difference: `{d['unmet_diff_units']:+d}` units."
+                )
 
-        # Top Filter Controls
-        with st.expander("Filter & Search Controls", expanded=True):
-            f1, f2, f3 = st.columns(3)
-
-            # Event filter
-            events = sorted(x for x in df["event_name"].unique() if x) if "event_name" in df.columns else []
-            sel_events = f1.multiselect("Disaster Event", events)
-
-            # Category filter
-            categories = sorted(x for x in df["humanitarian_category"].unique() if x) if "humanitarian_category" in df.columns else []
-            sel_cats = f2.multiselect("Humanitarian Category", categories)
-
-            # Priority / Hint filter
-            filter_hint_col = "priority_level" if "priority_level" in df.columns else "review_hint"
-            hints = sorted(x for x in df[filter_hint_col].unique() if x) if filter_hint_col in df.columns else []
-            sel_hints = f3.multiselect(f"Review Level ({filter_hint_col})", hints)
-
-            # Search bar
-            search_query = st.text_input("Text or Tweet ID Search (case-insensitive)", placeholder="e.g., stranded, bridge collapsed, 903371...")
-
-        # Apply Filters
-        if sel_events:
-            df = df[df["event_name"].isin(sel_events)]
-        if sel_cats:
-            df = df[df["humanitarian_category"].isin(sel_cats)]
-        if sel_hints:
-            df = df[df[filter_hint_col].isin(sel_hints)]
-
-        if search_query:
-            q = search_query.strip()
-            mask = pd.Series(False, index=df.index)
-            for c in ("tweet_text", "clean_text", "tweet_id"):
-                if c in df.columns:
-                    mask |= df[c].astype(str).str.contains(q, case=False, regex=False, na=False)
-            df = df[mask]
-
-        total_matched = len(df)
-
-        # Pagination & Bounded Rendering
-        p1, p2, p3 = st.columns([2, 1, 1])
-        page_size = p2.selectbox("Page Size", [25, 50, 100, 200], index=0)
-        total_pages = max(1, (total_matched + page_size - 1) // page_size)
-        curr_page = p3.number_input("Page", min_value=1, max_value=total_pages, value=1, step=1)
-
-        start_idx = (curr_page - 1) * page_size
-        end_idx = min(start_idx + page_size, total_matched)
-
-        p1.markdown(f"**Matched Reports:** `{total_matched:,}` | Showing items `{start_idx + 1}` to `{end_idx}` (Page `{curr_page}` of `{total_pages}`)")
-
-        # Prepare Display Table
-        display_cols = [
-            c for c in [
-                "tweet_id", "event_name", "humanitarian_category", "priority_score",
-                "priority_level", "review_hint", "need_indicators", "tweet_text"
-            ] if c in df.columns
+        # Bar charts: Fulfillment by Resource
+        res_data = [
+            {"Resource": r.title(), "Fulfillment (%)": eval_metrics.fulfillment_by_resource.get(r, 0.0)}
+            for r in current_inventory[0].demands.keys() if hasattr(current_inventory[0], 'demands')
+        ] if False else [
+            {"Resource": r.resource_type.title(), "Fulfillment (%)": eval_metrics.fulfillment_by_resource.get(r.resource_type, 0.0)}
+            for r in current_inventory
         ]
+        res_df = pd.DataFrame(res_data)
 
-        page_slice = df.iloc[start_idx:end_idx][display_cols]
-        st.dataframe(page_slice, use_container_width=True, hide_index=True, height=400)
-
-        # Detailed Report Inspector
-        st.markdown("---")
-        st.subheader("Detailed Report Inspector")
-
-        inspector_ids = page_slice["tweet_id"].tolist() if "tweet_id" in page_slice.columns else []
-        if inspector_ids:
-            selected_id = st.selectbox("Select Report to Inspect from Current Page", inspector_ids)
-            report_match = df[df["tweet_id"] == selected_id]
-
-            if not report_match.empty:
-                rep = report_match.iloc[0]
-
-                st.markdown(
-                    f"""
-                    <div class="dossier-card">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                            <span style="font-size: 16px; font-weight: 700; color: #F8FAFC;">REPORT DOSSIER: #{rep.get('tweet_id', 'N/A')}</span>
-                            <span class="kpi-badge badge-data">Event: {rep.get('event_name', 'Unknown')}</span>
-                        </div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-
-                d1, d2 = st.columns(2)
-                with d1:
-                    st.markdown("#### Text Representations")
-                    st.markdown("**Original Raw Text:**")
-                    st.info(rep.get("tweet_text", "N/A"))
-
-                    st.markdown("**Cleaned Formatted Text:**")
-                    st.text(rep.get("clean_text", "N/A"))
-
-                    st.markdown("**Normalized Tokens:**")
-                    st.code(rep.get("normalized_text", "N/A"))
-
-                with d2:
-                    st.markdown("#### Classification & Priority Attribution")
-                    st.markdown(f"- **Humanitarian Category:** `{rep.get('humanitarian_category', 'N/A')}` *(Original: {rep.get('original_label', 'N/A')})*")
-                    st.markdown(f"- **Review Hint:** `{rep.get('review_hint', 'N/A')}`")
-                    st.markdown(f"- **Need Indicators:** `{rep.get('need_indicators', 'None detected')}`")
-
-                    if "priority_score" in rep.index:
-                        st.markdown(f"- **Priority Score:** `{rep.get('priority_score', 'N/A')} / 100`")
-                        st.markdown(f"- **Priority Level:** `{rep.get('priority_level', 'N/A')}`")
-                        st.markdown(f"- **Scoring Factors:** `{rep.get('priority_reasons', 'N/A')}`")
-                        if "indicator_details" in rep.index and rep.get("indicator_details"):
-                            st.markdown(f"- **Matched Indicator Phrases:** `{rep.get('indicator_details')}`")
-                    st.caption("Source label is observed from HumAID. Priority score is a rule-based heuristic.")
-
-
-# -----------------------------------------------------------------------------
-# PAGE 3: 🔗 SIMILARITY & DUPLICATE CANDIDATES
-# -----------------------------------------------------------------------------
-
-elif page == "🔗 Similarity & Duplicates":
-    st.title("🔗 Similar Report Pairs & Duplicate Candidates")
-    st.caption("Inspect TF-IDF cosine similarity candidates, evaluate repetition, and conduct human duplicate verification.")
-
-    if pairs_df is None:
-        st.warning("Similarity pairs dataset not found. Please run `python group.py` and `python inspect_pairs.py`.")
-    else:
-        df = pairs_df.copy()
-
-        # Top threshold slider & filter
-        c1, c2, c3 = st.columns([2, 1, 1])
-        min_sim = c1.slider("Cosine Similarity Threshold", min_value=0.65, max_value=1.0, value=0.70, step=0.01)
-
-        event_col = "event_name" if "event_name" in df.columns else ("event_a" if "event_a" in df.columns else None)
-        events = sorted(df[event_col].dropna().unique()) if event_col else []
-        sel_event = c2.selectbox("Filter Event", ["All Events"] + events)
-
-        # Filter dataset
-        sim_col = "similarity_numeric" if "similarity_numeric" in df.columns else "similarity"
-        df = df[df[sim_col].astype(float) >= min_sim]
-        if sel_event != "All Events" and event_col:
-            df = df[df[event_col] == sel_event]
-
-        c3.metric("Candidate Pairs", f"{len(df):,}")
-
-        # Similarity Score Distribution Chart
-        st.markdown("#### Similarity Score Distribution")
-        fig_sim = px.histogram(
-            df,
-            x=sim_col,
-            nbins=35,
-            color_discrete_sequence=["#0284C7"],
-            title="Distribution of Cosine Similarity Across Candidate Pairs",
-        )
-        fig_sim.update_layout(
-            paper_bgcolor="#0B1120",
-            plot_bgcolor="#131E32",
-            font_color="#CBD5E1",
-            height=260,
-            margin=dict(l=10, r=10, t=35, b=10),
-            xaxis_title="Similarity Score",
-            yaxis_title="Pair Count",
-        )
-        st.plotly_chart(fig_sim, use_container_width=True)
-
-        st.markdown("---")
-        st.subheader("Side-by-Side Candidate Pair Comparison")
-
-        if df.empty:
-            st.info("No report pairs match the selected similarity threshold and filters.")
-        else:
-            # Dropdown selector for pair inspection
-            pair_options = [
-                f"Pair #{i+1}: Sim {float(row[sim_col]):.3f} | [{row.get('tweet_id_a', 'A')[:8]}... vs {row.get('tweet_id_b', 'B')[:8]}...]"
-                for i, (_, row) in enumerate(df.head(200).iterrows())
-            ]
-            sel_pair_idx = st.selectbox("Select Candidate Pair to Compare", range(len(pair_options)), format_func=lambda i: pair_options[i])
-            chosen_pair = df.iloc[sel_pair_idx]
-
-            id_a = chosen_pair.get("tweet_id_a", "N/A")
-            id_b = chosen_pair.get("tweet_id_b", "N/A")
-            score_val = float(chosen_pair.get(sim_col, 0))
-
-            # Header info
-            st.markdown(
-                f"""
-                <div class="emergency-banner" style="border-left-color: #0284C7;">
-                    <div class="emergency-banner-title">
-                        <span>🔍</span> CANDIDATE PAIR COMPARISON — SIMILARITY SCORE: {score_val:.4f}
-                    </div>
-                    <div class="emergency-banner-subtitle">
-                        <b>Important:</b> Text similarity is a candidate signal. Similar reports may describe the same incident,
-                        quote the same news wire, or describe distinct events with similar wording.
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True,
+        b_c1, b_c2 = st.columns([1, 1])
+        with b_c1:
+            fig_bar = px.bar(
+                res_df,
+                x="Resource",
+                y="Fulfillment (%)",
+                color="Fulfillment (%)",
+                color_continuous_scale="Teal",
+                range_y=[0, 105],
+                title="Resource Fulfillment Rates (%)",
             )
-
-            # Two-column comparison
-            comp_a, comp_b = st.columns(2)
-            with comp_a:
-                st.markdown(
-                    f"""
-                    <div class="dossier-card">
-                        <div class="kpi-title">REPORT A (ID: {id_a})</div>
-                        <div style="font-size: 13px; color: #38BDF8; margin-bottom: 8px;">
-                            Category: {chosen_pair.get('category_a', 'N/A')}
-                        </div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-                st.info(chosen_pair.get("tweet_text_a", "Text unavailable"))
-
-            with comp_b:
-                st.markdown(
-                    f"""
-                    <div class="dossier-card">
-                        <div class="kpi-title">REPORT B (ID: {id_b})</div>
-                        <div style="font-size: 13px; color: #38BDF8; margin-bottom: 8px;">
-                            Category: {chosen_pair.get('category_b', 'N/A')}
-                        </div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-                st.info(chosen_pair.get("tweet_text_b", "Text unavailable"))
-
-            # Analyst Decision Interface
-            st.markdown("#### Analyst Review Decision")
-            pair_key = f"{id_a}_{id_b}"
-            current_status = st.session_state["similar_reviews"].get(pair_key, "UNREVIEWED")
-
-            r_col1, r_col2 = st.columns([2, 1])
-            new_decision = r_col1.radio(
-                "Human Verification Status",
-                ["UNREVIEWED", "POTENTIAL_DUPLICATE_REPORT", "DISTINCT_INCIDENTS", "NEEDS_GROUND_VERIFICATION"],
-                index=["UNREVIEWED", "POTENTIAL_DUPLICATE_REPORT", "DISTINCT_INCIDENTS", "NEEDS_GROUND_VERIFICATION"].index(current_status),
-                horizontal=True,
-            )
-
-            if r_col2.button("Save Analyst Decision", use_container_width=True):
-                st.session_state["similar_reviews"][pair_key] = new_decision
-                st.success(f"Saved review for Pair {id_a} / {id_b}: `{new_decision}`")
-
-            # Table preview
-            st.markdown("---")
-            st.markdown("#### Bounded Candidate Pairs Table")
-            preview_cols = [c for c in ["similarity", "event_name", "category_a", "category_b", "tweet_id_a", "tweet_id_b", "tweet_text_a", "tweet_text_b"] if c in df.columns]
-            st.dataframe(df.head(100)[preview_cols], use_container_width=True, hide_index=True, height=350)
-
-
-# -----------------------------------------------------------------------------
-# PAGE 4: ⚖️ CONFLICT REVIEW
-# -----------------------------------------------------------------------------
-
-elif page == "⚖️ Conflict Review":
-    st.title("⚖️ Evidence-Aware Conflict Review")
-    st.caption("Inspect rule-based opposing claims and metric discrepancies across similar reports.")
-
-    # Prominent disclaimer
-    st.markdown(
-        """
-        <div class="emergency-banner">
-            <div class="emergency-banner-title">
-                <span>⚠️</span> POTENTIAL CONFLICT SIGNALS — HUMAN REVIEW REQUIRED
-            </div>
-            <div class="emergency-banner-subtitle">
-                Conflict flags are generated by transparent, rule-based heuristics comparing similar reports
-                (e.g., opposing keywords like 'road open' vs 'road closed', or differing numbers for casualty/injury counts).
-                <b>A flag is an alert for human triage, not proof of contradiction or misinformation.</b>
-                Reports may describe different times, revised estimates, or distinct micro-locations.
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    if conflicts_df is None or conflicts_df.empty:
-        st.info("No conflict flags detected or `potential_conflicts.tsv` not found. Run `python conflicts.py`.")
-    else:
-        df = conflicts_df.copy()
-
-        # Filters
-        f1, f2 = st.columns([1, 1])
-        all_signals = sorted({sig.strip() for val in df["conflict_signals"] for sig in str(val).split("|") if sig.strip()}) if "conflict_signals" in df.columns else []
-        sel_sig = f1.selectbox("Filter by Conflict Signal Type", ["All Signals"] + all_signals)
-
-        events = sorted(df["event_name"].unique()) if "event_name" in df.columns else []
-        sel_evt = f2.selectbox("Filter by Event", ["All Events"] + events)
-
-        if sel_sig != "All Signals":
-            df = df[df["conflict_signals"].astype(str).str.contains(sel_sig, regex=False)]
-        if sel_evt != "All Events":
-            df = df[df["event_name"] == sel_evt]
-
-        st.markdown(f"**Flagged Conflict Pairs:** `{len(df)}`")
-
-        # Dossier view of each flagged pair
-        for idx, row in df.iterrows():
-            sim_val = float(row.get("similarity", 0.0))
-            raw_sig = row.get("conflict_signals", "DISCREPANCY")
-            parsed_signals = utils.parse_conflict_signals(raw_sig)
-
-            st.markdown(
-                f"""
-                <div class="dossier-card" style="border-left: 4px solid #EF4444;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                        <div>
-                            <span style="font-weight: 700; color: #F8FAFC; font-size: 15px;">PAIR #{idx + 1} | {row.get('event_name', 'Unknown Event')}</span>
-                            <span class="kpi-badge badge-rule" style="margin-left: 8px;">Similarity: {sim_val:.3f}</span>
-                        </div>
-                        <span class="kpi-badge badge-demo">POTENTIAL CONFLICT SIGNAL — NOT VERIFIED</span>
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
-            # Signal summary tags
-            for ps in parsed_signals:
-                st.markdown(f"🚩 **Conflict Reason:** `{ps['summary']}`")
-
-            t_a, t_b = st.columns(2)
-            with t_a:
-                st.markdown(f"**Report A (ID: {row.get('tweet_id_a', 'N/A')})** | Category: `{row.get('category_a', 'N/A')}`")
-                st.info(row.get("tweet_text_a", "Text unavailable"))
-
-            with t_b:
-                st.markdown(f"**Report B (ID: {row.get('tweet_id_b', 'N/A')})** | Category: `{row.get('category_b', 'N/A')}`")
-                st.info(row.get("tweet_text_b", "Text unavailable"))
-
-            # Review status
-            rev_key = f"conflict_{row.get('tweet_id_a')}_{row.get('tweet_id_b')}"
-            existing_rev = st.session_state["conflict_reviews"].get(rev_key, "PENDING_ANALYST_TRIAGE")
-
-            rev_col1, rev_col2 = st.columns([3, 1])
-            new_rev = rev_col1.radio(
-                f"Triage Assessment for Pair #{idx + 1}",
-                [
-                    "PENDING_ANALYST_TRIAGE",
-                    "TEMPORAL_UPDATE (Toll/Status Revised Over Time)",
-                    "GEOGRAPHIC_VARIATION (Different Localities)",
-                    "AUTHENTIC_CONTRADICTION (Further Investigation Required)",
-                ],
-                index=[
-                    "PENDING_ANALYST_TRIAGE",
-                    "TEMPORAL_UPDATE (Toll/Status Revised Over Time)",
-                    "GEOGRAPHIC_VARIATION (Different Localities)",
-                    "AUTHENTIC_CONTRADICTION (Further Investigation Required)",
-                ].index(existing_rev),
-                key=f"radio_{rev_key}",
-                horizontal=True,
-            )
-
-            if rev_col2.button("Record Triage", key=f"btn_{rev_key}", use_container_width=True):
-                st.session_state["conflict_reviews"][rev_key] = new_rev
-                st.success(f"Recorded triage status: {new_rev}")
-
-            st.markdown("<hr style='margin: 16px 0; border-color: #1E293B;'>", unsafe_allow_html=True)
-
-
-# -----------------------------------------------------------------------------
-# PAGE 5: 📈 PRIORITY ANALYTICS
-# -----------------------------------------------------------------------------
-
-elif page == "📈 Priority Analytics":
-    st.title("📈 Emergency Report Priority Analytics")
-    st.caption("Inspect transparent rule-based review priorities, urgency indicator triggers, and queue distributions.")
-
-    # Explanation of priority score factors
-    st.markdown(
-        """
-        <div class="emergency-banner" style="border-left-color: #F59E0B;">
-            <div class="emergency-banner-title">
-                <span>ℹ️</span> SCORING METHODOLOGY & LIMITATIONS
-            </div>
-            <div class="emergency-banner-subtitle">
-                Priority scores [0–100] are calculated using transparent heuristics:
-                <b>Category Base Score</b> (Urgent Needs: 45, Casualties: 40, Missing People: 45, Evacuation: 35, etc.)
-                plus <b>Urgency Indicator Regex Boosts</b> (Immediate Danger: +35, Urgent Request: +25, Medical Emergency: +25, Evacuation Need: +15, Essential Supplies: +10).
-                Scores are capped at 100.
-                <b>This is a triage ranking for review queues, NOT a validated physical severity estimate or automatic dispatch order.</b>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    if reports_df is None or "priority_score" not in reports_df.columns:
-        st.info("Priority scored dataset not found (`priority_reports.tsv`). Please run `python priority.py`.")
-    else:
-        df = reports_df.copy()
-        df["priority_score_num"] = pd.to_numeric(df["priority_score"], errors="coerce").fillna(0)
-
-        # Overview Score Distribution
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Total Scored Reports", f"{len(df):,}")
-        m2.metric("Critical Review Queue (>=70)", f"{(df['priority_score_num'] >= 70).sum():,}")
-        m3.metric("High Review Queue (45-69)", f"{((df['priority_score_num'] >= 45) & (df['priority_score_num'] < 70)).sum():,}")
-        m4.metric("Mean Priority Score", f"{df['priority_score_num'].mean():.1f} / 100")
-
-        st.markdown("---")
-        g1, g2 = st.columns([1, 1])
-
-        with g1:
-            st.subheader("Priority Score Histogram")
-            fig_hist = px.histogram(
-                df,
-                x="priority_score_num",
-                nbins=25,
-                color_discrete_sequence=["#EF4444"],
-                title="Report Distribution Across Score Spectrum",
-            )
-            fig_hist.update_layout(
-                paper_bgcolor="#0B1120",
-                plot_bgcolor="#131E32",
+            fig_bar.update_layout(
+                paper_bgcolor="#070B14",
+                plot_bgcolor="#0F172A",
                 font_color="#CBD5E1",
-                height=340,
-                xaxis_title="Rule-Based Priority Score",
-                yaxis_title="Report Volume",
+                height=260,
                 margin=dict(l=10, r=10, t=35, b=10),
             )
-            st.plotly_chart(fig_hist, use_container_width=True)
+            st.plotly_chart(fig_bar, use_container_width=True)
 
-        with g2:
-            st.subheader("Priority Level Breakdown")
-            if "priority_level" in df.columns:
-                level_order = ["CRITICAL_REVIEW", "HIGH_REVIEW", "MEDIUM_REVIEW", "LOW_REVIEW", "INFORMATIONAL"]
-                lvl_counts = df["priority_level"].value_counts().reindex(level_order, fill_value=0).reset_index()
-                lvl_counts.columns = ["Priority Level", "Count"]
+        with b_c2:
+            # Shortage per incident bar
+            inc_shortages = []
+            for inc in current_incidents:
+                u_tot = sum(active_plan.unmet.get(inc.incident_id, {}).values())
+                inc_shortages.append({"Incident": inc.incident_id, "Priority": inc.priority_score, "Unmet Units": u_tot})
+            short_df = pd.DataFrame(inc_shortages)
 
-                fig_lvl = px.bar(
-                    lvl_counts,
-                    x="Priority Level",
-                    y="Count",
-                    color="Priority Level",
-                    color_discrete_map={
-                        "CRITICAL_REVIEW": "#EF4444",
-                        "HIGH_REVIEW": "#F59E0B",
-                        "MEDIUM_REVIEW": "#0284C7",
-                        "LOW_REVIEW": "#10B981",
-                        "INFORMATIONAL": "#64748B",
-                    },
-                    title="Report Volume by Review Band",
-                )
-                fig_lvl.update_layout(
-                    paper_bgcolor="#0B1120",
-                    plot_bgcolor="#131E32",
-                    font_color="#CBD5E1",
-                    height=340,
-                    margin=dict(l=10, r=10, t=35, b=10),
-                    showlegend=False,
-                )
-                st.plotly_chart(fig_lvl, use_container_width=True)
+            fig_short = px.bar(
+                short_df,
+                x="Incident",
+                y="Unmet Units",
+                color="Priority",
+                color_continuous_scale="Reds",
+                title="Unmet Deficits Across Competing Sites",
+            )
+            fig_short.update_layout(
+                paper_bgcolor="#070B14",
+                plot_bgcolor="#0F172A",
+                font_color="#CBD5E1",
+                height=260,
+                margin=dict(l=10, r=10, t=35, b=10),
+            )
+            st.plotly_chart(fig_short, use_container_width=True)
 
-        st.markdown("---")
-        st.subheader("High-Priority Emergency Review Queue")
+    with tab_comp:
+        st.markdown("#### Side-by-Side Algorithm Output Comparison")
+        comp_rows = []
+        for inc in current_incidents:
+            m_alc = "; ".join(f"{r}={q}" for r, q in milp_plan.allocations.get(inc.incident_id, {}).items())
+            m_unm = "; ".join(f"{r}={q}" for r, q in milp_plan.unmet.get(inc.incident_id, {}).items() if q > 0) or "None"
+            g_alc = "; ".join(f"{r}={q}" for r, q in greedy_plan.allocations.get(inc.incident_id, {}).items())
+            g_unm = "; ".join(f"{r}={q}" for r, q in greedy_plan.unmet.get(inc.incident_id, {}).items() if q > 0) or "None"
 
-        # Filters for high priority reports
-        p_filter_col1, p_filter_col2 = st.columns(2)
-        events = sorted(df["event_name"].unique()) if "event_name" in df.columns else []
-        sel_ev = p_filter_col1.selectbox("Filter Queue by Disaster Event", ["All Events"] + events)
+            comp_rows.append({
+                "Incident ID": inc.incident_id,
+                "Priority": inc.priority_score,
+                "Total Demand": inc.total_demand,
+                "MILP Allocated": m_alc,
+                "MILP Unmet": m_unm,
+                "Greedy Allocated": g_alc,
+                "Greedy Unmet": g_unm,
+                "Differs": (m_alc != g_alc),
+            })
+        st.dataframe(pd.DataFrame(comp_rows), use_container_width=True, hide_index=True)
 
-        min_score = p_filter_col2.slider("Minimum Priority Score for Queue", min_value=0, max_value=100, value=70, step=5)
-
-        queue_df = df[df["priority_score_num"] >= min_score]
-        if sel_ev != "All Events":
-            queue_df = queue_df[queue_df["event_name"] == sel_ev]
-
-        st.markdown(f"**Reports in Queue:** `{len(queue_df):,}`")
-
-        queue_display_cols = [
-            c for c in [
-                "priority_score", "priority_level", "event_name", "humanitarian_category",
-                "priority_reasons", "indicator_details", "tweet_text"
-            ] if c in queue_df.columns
-        ]
-
-        st.dataframe(queue_df.head(100)[queue_display_cols], use_container_width=True, hide_index=True, height=380)
+    with tab_narrative:
+        st.markdown("#### Algorithmic Trade-Off Explanation")
+        st.markdown(
+            f"""
+            <div style="background: #0F172A; padding: 14px 18px; border-radius: 6px; border-left: 3px solid #00F0FF; font-size: 13px; line-height: 1.6; color: #CBD5E1;">
+                <b>Active Solver Narrative:</b><br>
+                {active_plan.trade_off_explanation}<br><br>
+                <b>Core Optimization Mechanics:</b><br>
+                • <b>Decision Variables:</b> x[i, r] denotes units of resource 'r' assigned to incident 'i'. Unmet variable u[i, r] captures unfulfilled demand.<br>
+                • <b>Objective Function:</b> Minimize cumulative priority-weighted unmet demand: <code>min sum(weight[i, r] * u[i, r])</code>.<br>
+                • <b>Policy Enforcement:</b> When <i>Minimum Service Guarantee</i> is selected, constraints ensure that no site with positive demand is completely starved if sufficient units exist.<br>
+                • <b>Safety Notice:</b> Synthetic scenario calculations are decision-support only. Live field dispatch requires certified emergency commander authorization.
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
 
 # -----------------------------------------------------------------------------
-# PAGE 6: 📦 RESOURCE ALLOCATION
+# MODULE 2: ⚖️ EVIDENCE & CONFLICT REVIEW
 # -----------------------------------------------------------------------------
 
-elif page == "📦 Resource Allocation":
-    st.title("📦 Evidence-Aware Resource Allocation Engine")
-    st.caption("Greedy priority-first resource allocation baseline with interactive scenario simulation.")
+elif app_mode == "⚖️ Evidence & Conflict Review":
+    st.title("⚖️ Evidence & Conflict Review")
+    st.caption("Inspect candidate report pairs, evaluate potential opposing claims, and log persistent analyst decisions.")
 
-    # Prominent synthetic notice
     st.markdown(
         """
-        <div class="emergency-banner" style="border-left-color: #EF4444;">
-            <div class="emergency-banner-title">
-                <span>🚨</span> SYNTHETIC DEMONSTRATION DATA NOTICE
+        <div class="top-status-bar" style="border-bottom-color: #EF4444;">
+            <div class="status-brand">
+                <span>⚠️</span> CONFLICT RECONCILIATION & HUMAN TRIAGE
             </div>
-            <div class="emergency-banner-subtitle">
-                All inventory quantities, incident resource requests, and priority scores in this module are <b>synthetic demo inputs</b>.
-                The allocation algorithm is a transparent <b>greedy priority-first baseline</b> (it fulfills requests in descending order of priority score
-                until stock is depleted). It is not guaranteed to be globally optimal.
-                <b>All recommendations require human commander review. Real resource dispatch is never executed.</b>
+            <div class="status-meta">
+                <span>RULE-BASED SIGNALS • UNVERIFIED HYPOTHESES FOR ANALYST VERIFICATION</span>
             </div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    tab_static, tab_simulator = st.tabs(["📋 Current Baseline Allocation", "🎛️ Scenario Simulator & Sandbox"])
+    tab_conflicts, tab_duplicates = st.tabs(["⚖️ Potential Discrepancies & Conflicts", "🔗 Candidate Similar Reports"])
 
-    # TAB 1: Baseline Static Results
-    with tab_static:
-        st.subheader("Current Baseline Allocation Results")
-
-        if allocations_df is None or allocations_df.empty:
-            st.info("Allocation results not available yet. Please run `python allocator.py`.")
+    # SUBTAB 1: Potential Conflicts
+    with tab_conflicts:
+        if conflicts_df is None or conflicts_df.empty:
+            st.info("No conflict flags detected in `potential_conflicts.tsv`. Run `python conflicts.py`.")
         else:
-            # Metrics
-            total_incidents = len(allocations_df)
-            shortage_incidents = shortages_df["incident_id"].nunique() if shortages_df is not None and not shortages_df.empty else 0
+            cdf = conflicts_df.copy()
 
-            b1, b2, b3 = st.columns(3)
-            b1.metric("Incidents Considered", f"{total_incidents}")
-            b2.metric("Incidents with Unmet Needs", f"{shortage_incidents}")
-            b3.metric("Baseline Solver Heuristic", "Greedy Priority-First")
+            # Filters
+            f1, f2 = st.columns(2)
+            events = sorted(cdf["event_name"].unique()) if "event_name" in cdf.columns else []
+            sel_ev = f1.selectbox("Filter Discrepancies by Event", ["All Events"] + events)
+            if sel_ev != "All Events":
+                cdf = cdf[cdf["event_name"] == sel_ev]
 
-            st.markdown("#### Baseline Incident Assignments")
-            st.dataframe(allocations_df, use_container_width=True, hide_index=True)
+            st.markdown(f"**Flagged Conflict Pairs:** `{len(cdf)}`")
 
-            if shortages_df is not None and not shortages_df.empty:
-                st.markdown("#### Unmet Resource Shortages")
-                sh_df = shortages_df.copy()
-                sh_df["unmet_numeric"] = pd.to_numeric(sh_df["unmet"], errors="coerce").fillna(0)
+            for idx, row in cdf.iterrows():
+                id_a = row.get("tweet_id_a", "A")
+                id_b = row.get("tweet_id_b", "B")
+                sim_val = float(row.get("similarity", 0.0))
+                signals = utils.parse_conflict_signals(row.get("conflict_signals", ""))
 
-                sh_chart_col, sh_table_col = st.columns([1, 1])
+                pair_key = f"{id_a}_{id_b}"
+                saved_status = analyst_reviews.get("conflicts", {}).get(pair_key, {}).get("status", "UNREVIEWED")
 
-                with sh_chart_col:
-                    shortage_summary = sh_df.groupby("resource_type")["unmet_numeric"].sum().reset_index()
-                    fig_shortage = px.bar(
-                        shortage_summary,
-                        x="resource_type",
-                        y="unmet_numeric",
-                        color="resource_type",
-                        color_discrete_sequence=["#EF4444", "#F59E0B", "#0284C7"],
-                        title="Unmet Deficit by Resource Category",
-                    )
-                    fig_shortage.update_layout(
-                        paper_bgcolor="#0B1120",
-                        plot_bgcolor="#131E32",
-                        font_color="#CBD5E1",
-                        height=280,
-                        margin=dict(l=10, r=10, t=35, b=10),
-                        showlegend=False,
-                        xaxis_title="Resource Type",
-                        yaxis_title="Unfulfilled Units",
-                    )
-                    st.plotly_chart(fig_shortage, use_container_width=True)
+                st.markdown(
+                    f"""
+                    <div class="tactical-card" style="border-left: 3px solid #EF4444; margin-bottom: 14px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                            <div>
+                                <span style="font-weight: 700; color: #F8FAFC; font-size: 14px;">PAIR #{idx + 1} | {row.get('event_name', 'Unknown Event')}</span>
+                                <span class="tag-pill badge-cyan" style="margin-left: 8px;">Cosine Sim: {sim_val:.3f}</span>
+                            </div>
+                            <span class="tag-pill badge-red">POTENTIAL CONFLICT SIGNAL</span>
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
 
-                with sh_table_col:
-                    st.dataframe(sh_df[["incident_id", "priority_score", "resource_type", "requested", "allocated", "unmet"]], use_container_width=True, hide_index=True, height=280)
+                for sig in signals:
+                    st.markdown(f"🚩 **Mismatch Indicator:** `{sig['summary']}`")
 
-    # TAB 2: Interactive Scenario Simulator
-    with tab_simulator:
-        st.subheader("Interactive Scenario Simulator")
-        st.caption("Adjust demo inventory reserves or incident requests to evaluate allocation outcomes and shortage reduction.")
+                c_a, c_b = st.columns(2)
+                with c_a:
+                    st.markdown(f"**Report A (#{id_a})** | Category: `{row.get('category_a', 'N/A')}`")
+                    st.info(row.get("tweet_text_a", "Text unavailable"))
 
-        # Default incident & inventory lists
-        default_inventory = [
-            {"resource_type": "ambulance", "available_quantity": 3},
-            {"resource_type": "rescue_team", "available_quantity": 3},
-            {"resource_type": "water_kit", "available_quantity": 6},
-        ]
+                with c_b:
+                    st.markdown(f"**Report B (#{id_b})** | Category: `{row.get('category_b', 'N/A')}`")
+                    st.info(row.get("tweet_text_b", "Text unavailable"))
 
-        default_incidents = [
-            {"incident_id": "DEMO-001", "priority_score": 95, "ambulances_needed": 2, "rescue_teams_needed": 1, "water_kits_needed": 3},
-            {"incident_id": "DEMO-002", "priority_score": 82, "ambulances_needed": 1, "rescue_teams_needed": 2, "water_kits_needed": 4},
-            {"incident_id": "DEMO-003", "priority_score": 68, "ambulances_needed": 2, "rescue_teams_needed": 1, "water_kits_needed": 2},
-        ]
+                # Analyst Decision Logger
+                rev_c1, rev_c2, rev_c3 = st.columns([2, 2, 1])
+                new_status = rev_c1.selectbox(
+                    f"Analyst Determination for #{idx + 1}",
+                    [
+                        "UNREVIEWED",
+                        "TEMPORAL_UPDATE (Toll Revised Over Time)",
+                        "GEOGRAPHIC_VARIATION (Distinct Sub-Localities)",
+                        "TRUE_CONTRADICTION (Conflicting Ground Truth)",
+                    ],
+                    index=[
+                        "UNREVIEWED",
+                        "TEMPORAL_UPDATE (Toll Revised Over Time)",
+                        "GEOGRAPHIC_VARIATION (Distinct Sub-Localities)",
+                        "TRUE_CONTRADICTION (Conflicting Ground Truth)",
+                    ].index(saved_status) if saved_status in [
+                        "UNREVIEWED",
+                        "TEMPORAL_UPDATE (Toll Revised Over Time)",
+                        "GEOGRAPHIC_VARIATION (Distinct Sub-Localities)",
+                        "TRUE_CONTRADICTION (Conflicting Ground Truth)",
+                    ] else 0,
+                    key=f"status_sel_{pair_key}",
+                )
 
-        with st.form("simulation_form"):
-            st.markdown("#### 1. Adjust Scenario Inventory")
-            inv_c1, inv_c2, inv_c3 = st.columns(3)
-            amb_qty = inv_c1.number_input("Ambulance Stock", min_value=0, max_value=50, value=3)
-            rescue_qty = inv_c2.number_input("Rescue Team Stock", min_value=0, max_value=50, value=3)
-            water_qty = inv_c3.number_input("Water Kit Stock", min_value=0, max_value=50, value=6)
+                note = rev_c2.text_input("Analyst Notes", value=analyst_reviews.get("conflicts", {}).get(pair_key, {}).get("notes", ""), key=f"note_{pair_key}")
 
-            st.markdown("#### 2. Incident Scenario Requests")
-            st.caption("Incident priority scores determine triage order in the greedy allocation solver.")
+                if rev_c3.button("Save Review", key=f"btn_save_{pair_key}", use_container_width=True):
+                    utils.save_analyst_decision("conflicts", pair_key, new_status, note)
+                    st.success("Decision recorded to local audit log.")
 
-            sim_incidents = []
-            for i, d_inc in enumerate(default_incidents):
-                st.markdown(f"**Incident: {d_inc['incident_id']}**")
-                col_s, col_a, col_r, col_w = st.columns(4)
-                score = col_s.number_input(f"Priority Score ({d_inc['incident_id']})", 0, 100, int(d_inc["priority_score"]), key=f"score_{i}")
-                amb = col_a.number_input(f"Ambulances Needed", 0, 20, int(d_inc["ambulances_needed"]), key=f"amb_{i}")
-                res = col_r.number_input(f"Rescue Teams Needed", 0, 20, int(d_inc["rescue_teams_needed"]), key=f"res_{i}")
-                wat = col_w.number_input(f"Water Kits Needed", 0, 20, int(d_inc["water_kits_needed"]), key=f"wat_{i}")
+                st.markdown("<hr style='border-color: #1E293B; margin: 16px 0;'>", unsafe_allow_html=True)
 
-                sim_incidents.append({
-                    "incident_id": d_inc["incident_id"],
-                    "priority_score": str(score),
-                    "ambulances_needed": str(amb),
-                    "rescue_teams_needed": str(res),
-                    "water_kits_needed": str(wat),
-                })
+    # SUBTAB 2: Candidate Similar Reports
+    with tab_duplicates:
+        if pairs_df is None or pairs_df.empty:
+            st.info("Similarity dataset not found. Run `python group.py` and `python inspect_pairs.py`.")
+        else:
+            pdf = pairs_df.copy()
+            sim_col = "similarity_numeric" if "similarity_numeric" in pdf.columns else "similarity"
 
-            sim_submitted = st.form_submit_button("🚀 Run Scenario Allocation Simulation", use_container_width=True)
+            s_col1, s_col2 = st.columns(2)
+            min_sim_thresh = s_col1.slider("Minimum Similarity Threshold", 0.65, 1.0, 0.75, 0.01)
+            pdf = pdf[pdf[sim_col].astype(float) >= min_sim_thresh]
 
-        if sim_submitted:
-            sim_inventory = [
-                {"resource_type": "ambulance", "available_quantity": str(amb_qty)},
-                {"resource_type": "rescue_team", "available_quantity": str(rescue_qty)},
-                {"resource_type": "water_kit", "available_quantity": str(water_qty)},
-            ]
+            st.caption(f"Showing candidate similar pairs matching threshold ({len(pdf):,} pairs).")
 
-            try:
-                assignments, shortages, metrics = utils.run_allocation_simulation(sim_incidents, sim_inventory)
-
-                st.markdown("---")
-                st.subheader("Simulation Results")
-
-                sm1, sm2, sm3, sm4 = st.columns(4)
-                sm1.metric("Requested Units", f"{metrics['total_requested']}")
-                sm2.metric("Available Stock", f"{metrics['total_inventory']}")
-                sm3.metric("Fulfillment Rate", f"{metrics['fulfillment_rate']}%")
-                sm4.metric("Incidents with Shortage", f"{metrics['incidents_with_unmet']} / {metrics['incidents_count']}")
-
-                st.markdown("#### Scenario Assignment Output")
-                sim_res_df = pd.DataFrame(assignments)
-                st.dataframe(sim_res_df, use_container_width=True, hide_index=True)
-
-                if shortages:
-                    st.markdown("#### Scenario Unmet Shortages")
-                    st.dataframe(pd.DataFrame(shortages), use_container_width=True, hide_index=True)
-                else:
-                    st.success("🎉 All requested resources were 100% fulfilled in this scenario simulation!")
-
-            except Exception as exc:
-                st.error(f"Simulation error: {exc}")
+            preview_cols = [c for c in ["similarity", "event_name", "category_a", "category_b", "tweet_id_a", "tweet_id_b", "tweet_text_a", "tweet_text_b"] if c in pdf.columns]
+            st.dataframe(pdf.head(80)[preview_cols], use_container_width=True, hide_index=True)
 
 
 # -----------------------------------------------------------------------------
-# PAGE 7: 🛡️ PIPELINE HEALTH & SYSTEM DIAGNOSTICS
+# MODULE 3: 🔍 HISTORICAL REPORT INTELLIGENCE
 # -----------------------------------------------------------------------------
 
-elif page == "🛡️ Pipeline Health":
-    st.title("🛡️ Pipeline Health & Architecture Diagnostics")
-    st.caption("Inspect pipeline file integrity, schema compliance, execution dependencies, and system telemetry.")
+elif app_mode == "🔍 Historical Report Intelligence":
+    st.title("🔍 Historical Report Intelligence")
+    st.caption("Search, filter, and inspect processed HumAID disaster reports with bounded pagination.")
 
+    if reports_df is None:
+        st.warning("Processed reports dataset not found. Run `python extract.py`.")
+    else:
+        rdf = reports_df.copy()
+
+        # Top Filters
+        fc1, fc2, fc3 = st.columns(3)
+        ev_list = sorted(rdf["event_name"].unique()) if "event_name" in rdf.columns else []
+        sel_evs = fc1.multiselect("Filter by Disaster Event", ev_list)
+
+        cat_list = sorted(rdf["humanitarian_category"].unique()) if "humanitarian_category" in rdf.columns else []
+        sel_cats = fc2.multiselect("Filter by Category", cat_list)
+
+        txt_query = fc3.text_input("Search Text or ID", placeholder="e.g. trapped, medical, flood...")
+
+        if sel_evs:
+            rdf = rdf[rdf["event_name"].isin(sel_evs)]
+        if sel_cats:
+            rdf = rdf[rdf["humanitarian_category"].isin(sel_cats)]
+        if txt_query:
+            q = txt_query.strip().lower()
+            mask = pd.Series(False, index=rdf.index)
+            for c in ["tweet_text", "clean_text", "tweet_id"]:
+                if c in rdf.columns:
+                    mask |= rdf[c].astype(str).str.lower().str.contains(q, regex=False)
+            rdf = rdf[mask]
+
+        total_matching = len(rdf)
+
+        # Bounded Pagination
+        pg_c1, pg_c2 = st.columns([3, 1])
+        page_sz = 50
+        max_p = max(1, (total_matching + page_sz - 1) // page_sz)
+        curr_p = pg_c2.number_input("Page", min_value=1, max_value=max_p, value=1, step=1)
+
+        st_idx = (curr_p - 1) * page_sz
+        end_idx = min(st_idx + page_sz, total_matching)
+        pg_c1.markdown(f"**Matching Reports:** `{total_matching:,}` | Showing `{st_idx + 1}` to `{end_idx}` (Page `{curr_p}` of `{max_p}`)")
+
+        disp_cols = [c for c in ["tweet_id", "event_name", "humanitarian_category", "priority_score", "priority_level", "tweet_text"] if c in rdf.columns]
+        st.dataframe(rdf.iloc[st_idx:end_idx][disp_cols], use_container_width=True, hide_index=True)
+
+
+# -----------------------------------------------------------------------------
+# MODULE 4: 🛡️ SYSTEM HEALTH & DIAGNOSTICS
+# -----------------------------------------------------------------------------
+
+elif app_mode == "🛡️ System Health & Diagnostics":
+    st.title("🛡️ System Health & Diagnostics")
+    st.caption("Verifies pipeline data integrity, schema compliance, runtime versions, and execution commands.")
+
+    health_records = utils.inspect_pipeline_health()
+    hdf = pd.DataFrame(health_records)
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Pipeline Assets", len(hdf))
+    c2.metric("Operational (Healthy)", (hdf["status"] == "HEALTHY").sum())
+    c3.metric("Optimization Engine", "MILP (scipy.optimize.milp)")
+    c4.metric("3D Graphics Engine", "WebGL + Three.js / Plotly")
+
+    st.markdown("---")
+    st.markdown("#### Pipeline Asset Audit Matrix")
+    disp_h = hdf[["name", "type", "status", "rows", "size_kb", "modified", "script"]].copy()
+    disp_h.columns = ["Asset", "Pipeline Stage", "Status", "Rows", "Size (KB)", "Last Modified", "Script"]
+    st.dataframe(disp_h, use_container_width=True, hide_index=True)
+
+    st.markdown("---")
+    st.markdown("#### Execution Guide")
     st.markdown(
         """
-        <div class="emergency-banner" style="border-left-color: #10B981;">
-            <div class="emergency-banner-title">
-                <span>🩺</span> SYSTEM DIAGNOSTIC STATUS
-            </div>
-            <div class="emergency-banner-subtitle">
-                RESCUEGRID audits file paths, record volumes, column schemas, and module integrity on every launch.
-                Review the audit matrix below for pipeline verification.
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    health_data = utils.inspect_pipeline_health()
-    health_df = pd.DataFrame(health_data)
-
-    # Health Metrics
-    total_files = len(health_df)
-    healthy_files = (health_df["status"] == "HEALTHY").sum()
-    warning_files = (health_df["status"] == "SCHEMA_WARNING").sum()
-    missing_files = (health_df["status"] == "MISSING").sum()
-
-    h1, h2, h3, h4 = st.columns(4)
-    h1.metric("Audited Pipeline Assets", f"{total_files}")
-    h2.metric("Fully Operational", f"{healthy_files}", delta="Healthy", delta_color="normal")
-    h3.metric("Schema Warnings", f"{warning_files}")
-    h4.metric("Pending Modules", f"{missing_files}")
-
-    st.markdown("---")
-    st.subheader("Pipeline Asset Health Matrix")
-
-    # Format table for display
-    display_matrix = health_df[[
-        "name", "type", "status", "rows", "size_kb", "modified", "script"
-    ]].copy()
-    display_matrix.columns = [
-        "Asset Name", "Pipeline Stage", "Health Status", "Row Count", "Size (KB)", "Last Modified", "Generator Script"
-    ]
-
-    st.dataframe(display_matrix, use_container_width=True, hide_index=True)
-
-    # Missing Columns or Detailed Errors if any
-    warnings = [item for item in health_data if item["missing_cols"]]
-    if warnings:
-        st.warning("The following files are missing expected columns:")
-        for w in warnings:
-            st.write(f"- `{w['filename']}`: Missing `{w['missing_cols']}`")
-
-    st.markdown("---")
-    st.subheader("Runtime Environment & Dependencies")
-
-    e1, e2, e3, e4 = st.columns(4)
-    e1.markdown(f"**Python:** `{sys.version.split()[0]}`")
-    e2.markdown(f"**Streamlit:** `{st.__version__}`")
-    e3.markdown(f"**Pandas:** `{pd.__version__}`")
-    e4.markdown(f"**Plotly:** `{px.__version__ if hasattr(px, '__version__') else 'Installed'}`")
-
-    st.markdown("---")
-    st.subheader("Pipeline Module Execution Guide")
-    st.markdown(
-        """
-        To regenerate or update any stage of the RESCUEGRID pipeline, execute the respective command from the project root:
-        - **1. Merge Raw HumAID Data:** `python prepare_humaid.py`
-        - **2. Clean & Extract Categories:** `python extract.py`
-        - **3. Generate Similar Pairs:** `python group.py`
-        - **4. Join Text for Pair Review:** `python inspect_pairs.py`
-        - **5. Detect Potential Conflicts:** `python conflicts.py`
-        - **6. Compute Priority Scores:** `python priority.py`
-        - **7. Run Resource Allocation:** `python allocator.py`
-        - **8. Launch Dashboard:** `streamlit run app.py`
+        - **Run MILP Allocator:** `python allocator.py --solver milp`
+        - **Run Greedy Baseline:** `python allocator.py --solver greedy`
+        - **Run Unit Test Suite:** `pytest -v`
+        - **Start Dashboard:** `streamlit run app.py`
         """
     )
 
@@ -1131,9 +849,9 @@ elif page == "🛡️ Pipeline Health":
 st.markdown("---")
 st.markdown(
     """
-    <div style="text-align: center; color: #64748B; font-size: 12px; padding: 10px;">
-        RESCUEGRID: Evidence-Aware Emergency Intelligence and Resource Allocation Under Conflicting Reports<br>
-        Developed for Emergency Decision Support • Historical Research Prototype • Human Review Required
+    <div style="text-align: center; color: #475569; font-size: 11px; padding: 10px;">
+        RESCUEGRID 3D • Tactical Emergency Intelligence & Resource Optimization Engine • NEXAI 2026<br>
+        Mixed-Integer Linear Programming • Evidence-Aware Reconciliation • Human Commander Review Required
     </div>
     """,
     unsafe_allow_html=True,
