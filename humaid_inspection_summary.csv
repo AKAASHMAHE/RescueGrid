@@ -1,0 +1,43 @@
+file,dataset_type,rows,column_count,columns
+data\HumAID_data_all_combined\all_combined\all_dev.tsv,combined,7793,2,tweet_id | class_label
+data\HumAID_data_all_combined\all_combined\all_test.tsv,combined,15160,2,tweet_id | class_label
+data\HumAID_data_all_combined\all_combined\all_train.tsv,combined,53531,2,tweet_id | class_label
+data\HumAID_data_events_set1_47K\events_set1\canada_wildfires_2016\canada_wildfires_2016_dev.tsv,event_wise,228,3,tweet_id | tweet_text | class_label
+data\HumAID_data_events_set1_47K\events_set1\canada_wildfires_2016\canada_wildfires_2016_test.tsv,event_wise,445,3,tweet_id | tweet_text | class_label
+data\HumAID_data_events_set1_47K\events_set1\canada_wildfires_2016\canada_wildfires_2016_train.tsv,event_wise,1569,3,tweet_id | tweet_text | class_label
+data\HumAID_data_events_set1_47K\events_set1\cyclone_idai_2019\cyclone_idai_2019_dev.tsv,event_wise,401,3,tweet_id | tweet_text | class_label
+data\HumAID_data_events_set1_47K\events_set1\cyclone_idai_2019\cyclone_idai_2019_test.tsv,event_wise,779,3,tweet_id | tweet_text | class_label
+data\HumAID_data_events_set1_47K\events_set1\cyclone_idai_2019\cyclone_idai_2019_train.tsv,event_wise,2753,3,tweet_id | tweet_text | class_label
+data\HumAID_data_events_set1_47K\events_set1\ecuador_earthquake_2016\ecuador_earthquake_2016_dev.tsv,event_wise,159,3,tweet_id | tweet_text | class_label
+data\HumAID_data_events_set1_47K\events_set1\ecuador_earthquake_2016\ecuador_earthquake_2016_test.tsv,event_wise,310,3,tweet_id | tweet_text | class_label
+data\HumAID_data_events_set1_47K\events_set1\ecuador_earthquake_2016\ecuador_earthquake_2016_train.tsv,event_wise,1094,3,tweet_id | tweet_text | class_label
+data\HumAID_data_events_set1_47K\events_set1\hurricane_harvey_2017\hurricane_harvey_2017_dev.tsv,event_wise,929,3,tweet_id | tweet_text | class_label
+data\HumAID_data_events_set1_47K\events_set1\hurricane_harvey_2017\hurricane_harvey_2017_test.tsv,event_wise,1805,3,tweet_id | tweet_text | class_label
+data\HumAID_data_events_set1_47K\events_set1\hurricane_harvey_2017\hurricane_harvey_2017_train.tsv,event_wise,6378,3,tweet_id | tweet_text | class_label
+data\HumAID_data_events_set1_47K\events_set1\hurricane_irma_2017\hurricane_irma_2017_dev.tsv,event_wise,958,3,tweet_id | tweet_text | class_label
+data\HumAID_data_events_set1_47K\events_set1\hurricane_irma_2017\hurricane_irma_2017_test.tsv,event_wise,1862,3,tweet_id | tweet_text | class_label
+data\HumAID_data_events_set1_47K\events_set1\hurricane_irma_2017\hurricane_irma_2017_train.tsv,event_wise,6579,3,tweet_id | tweet_text | class_label
+data\HumAID_data_events_set1_47K\events_set1\hurricane_maria_2017\hurricane_maria_2017_dev.tsv,event_wise,742,3,tweet_id | tweet_text | class_label
+data\HumAID_data_events_set1_47K\events_set1\hurricane_maria_2017\hurricane_maria_2017_test.tsv,event_wise,1442,3,tweet_id | tweet_text | class_label
+data\HumAID_data_events_set1_47K\events_set1\hurricane_maria_2017\hurricane_maria_2017_train.tsv,event_wise,5094,3,tweet_id | tweet_text | class_label
+data\HumAID_data_events_set1_47K\events_set1\hurricane_matthew_2016\greece_wildfires_2018\greece_wildfires_2018_dev.tsv,event_wise,154,3,tweet_id | tweet_text | class_label
+data\HumAID_data_events_set1_47K\events_set1\hurricane_matthew_2016\greece_wildfires_2018\greece_wildfires_2018_test.tsv,event_wise,301,3,tweet_id | tweet_text | class_label
+data\HumAID_data_events_set1_47K\events_set1\hurricane_matthew_2016\greece_wildfires_2018\greece_wildfires_2018_train.tsv,event_wise,1060,3,tweet_id | tweet_text | class_label
+data\HumAID_data_events_set1_47K\events_set1\hurricane_matthew_2016\hurricane_matthew_2016_dev.tsv,event_wise,168,3,tweet_id | tweet_text | class_label
+data\HumAID_data_events_set1_47K\events_set1\hurricane_matthew_2016\hurricane_matthew_2016_test.tsv,event_wise,329,3,tweet_id | tweet_text | class_label
+data\HumAID_data_events_set1_47K\events_set1\hurricane_matthew_2016\hurricane_matthew_2016_train.tsv,event_wise,1157,3,tweet_id | tweet_text | class_label
+data\HumAID_data_events_set1_47K\events_set1\hurricane_matthew_2016\maryland_floods_2018\maryland_floods_2018_dev.tsv,event_wise,75,3,tweet_id | tweet_text | class_label
+data\HumAID_data_events_set1_47K\events_set1\hurricane_matthew_2016\maryland_floods_2018\maryland_floods_2018_test.tsv,event_wise,148,3,tweet_id | tweet_text | class_label
+data\HumAID_data_events_set1_47K\events_set1\hurricane_matthew_2016\maryland_floods_2018\maryland_floods_2018_train.tsv,event_wise,519,3,tweet_id | tweet_text | class_label
+data\HumAID_data_events_set1_47K\events_set1\italy_earthquake_aug_2016\italy_earthquake_aug_2016_dev.tsv,event_wise,122,3,tweet_id | tweet_text | class_label
+data\HumAID_data_events_set1_47K\events_set1\italy_earthquake_aug_2016\italy_earthquake_aug_2016_test.tsv,event_wise,239,3,tweet_id | tweet_text | class_label
+data\HumAID_data_events_set1_47K\events_set1\italy_earthquake_aug_2016\italy_earthquake_aug_2016_train.tsv,event_wise,840,3,tweet_id | tweet_text | class_label
+data\HumAID_data_events_set1_47K\events_set1\kaikoura_earthquake_2016\kaikoura_earthquake_2016_dev.tsv,event_wise,224,3,tweet_id | tweet_text | class_label
+data\HumAID_data_events_set1_47K\events_set1\kaikoura_earthquake_2016\kaikoura_earthquake_2016_test.tsv,event_wise,435,3,tweet_id | tweet_text | class_label
+data\HumAID_data_events_set1_47K\events_set1\kaikoura_earthquake_2016\kaikoura_earthquake_2016_train.tsv,event_wise,1536,3,tweet_id | tweet_text | class_label
+data\HumAID_data_events_set1_47K\events_set1\puebla_mexico_earthquake_2017\puebla_mexico_earthquake_2017_dev.tsv,event_wise,205,3,tweet_id | tweet_text | class_label
+data\HumAID_data_events_set1_47K\events_set1\puebla_mexico_earthquake_2017\puebla_mexico_earthquake_2017_test.tsv,event_wise,400,3,tweet_id | tweet_text | class_label
+data\HumAID_data_events_set1_47K\events_set1\puebla_mexico_earthquake_2017\puebla_mexico_earthquake_2017_train.tsv,event_wise,1410,3,tweet_id | tweet_text | class_label
+data\HumAID_data_events_set1_47K\events_set1\srilanka_floods_2017\srilanka_floods_2017_dev.tsv,event_wise,57,3,tweet_id | tweet_text | class_label
+data\HumAID_data_events_set1_47K\events_set1\srilanka_floods_2017\srilanka_floods_2017_test.tsv,event_wise,111,3,tweet_id | tweet_text | class_label
+data\HumAID_data_events_set1_47K\events_set1\srilanka_floods_2017\srilanka_floods_2017_train.tsv,event_wise,392,3,tweet_id | tweet_text | class_label

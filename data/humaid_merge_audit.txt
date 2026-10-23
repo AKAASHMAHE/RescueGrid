@@ -1,0 +1,42 @@
+HUMAID MERGE AUDIT
+==================================================
+Event-wise files found: 39
+Combined files found: 3
+Event-wise rows: 43,409
+Combined rows: 76,484
+Repeated event-wise IDs: 0
+Repeated combined IDs: 0
+Unique event-wise IDs: 43,409
+Unique combined IDs: 76,484
+Matched event-wise records: 43,409
+Unmatched event-wise records: 0
+Matching labels: 43,409
+Label mismatches among matched records: 0
+
+ROWS PER EVENT:
+event_name
+canada_wildfires_2016            2242
+cyclone_idai_2019                3933
+ecuador_earthquake_2016          1563
+greece_wildfires_2018            1515
+hurricane_harvey_2017            9112
+hurricane_irma_2017              9399
+hurricane_maria_2017             7278
+hurricane_matthew_2016           1654
+italy_earthquake_aug_2016        1201
+kaikoura_earthquake_2016         2195
+maryland_floods_2018              742
+puebla_mexico_earthquake_2017    2015
+srilanka_floods_2017              560
+
+MATCHES BY COMBINED SPLIT:
+combined_split
+dev       4422
+test      8606
+train    30381
+
+LABEL MATCH STATUS:
+label_match
+True    43409
+
+Output: humaid_reports_merged.tsv
