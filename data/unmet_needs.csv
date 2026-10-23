@@ -1,0 +1,5 @@
+incident_id,priority_score,resource_type,requested,allocated,unmet
+DEMO-002,82.0,water_kit,4,3,1
+DEMO-003,68.0,ambulance,2,0,2
+DEMO-003,68.0,rescue_team,1,0,1
+DEMO-003,68.0,water_kit,2,0,2

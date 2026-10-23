@@ -1,0 +1,4 @@
+incident_id,priority_score,ambulances_needed,rescue_teams_needed,water_kits_needed
+DEMO-001,95,2,1,3
+DEMO-002,82,1,2,4
+DEMO-003,68,2,1,2

@@ -1,0 +1,4 @@
+incident_id,priority_score,allocations,unmet_needs,decision_reason,review_status,data_status
+DEMO-001,95.0,ambulance=2/2; rescue_team=1/1; water_kit=3/3,None,Processed in descending priority order; allocations limited by remaining inventory.,HUMAN_APPROVAL_REQUIRED,SYNTHETIC_DEMO_INPUT
+DEMO-002,82.0,ambulance=1/1; rescue_team=2/2; water_kit=3/4,water_kit: unmet 1,Processed in descending priority order; allocations limited by remaining inventory.,HUMAN_APPROVAL_REQUIRED,SYNTHETIC_DEMO_INPUT
+DEMO-003,68.0,ambulance=0/2; rescue_team=0/1; water_kit=0/2,ambulance: unmet 2; rescue_team: unmet 1; water_kit: unmet 2,Processed in descending priority order; allocations limited by remaining inventory.,HUMAN_APPROVAL_REQUIRED,SYNTHETIC_DEMO_INPUT

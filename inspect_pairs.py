@@ -1,5 +1,5 @@
-
 from pathlib import Path
+import sys
 import pandas as pd
 
 PROJECT_DIR = Path(__file__).resolve().parent
@@ -9,21 +9,34 @@ REPORTS_FILE = DATA_DIR / "processed_reports.tsv"
 PAIRS_FILE = DATA_DIR / "similar_report_pairs.tsv"
 OUTPUT_FILE = DATA_DIR / "review_similar_pairs.tsv"
 
-reports = pd.read_csv(
-    REPORTS_FILE, sep="\t", dtype=str, keep_default_na=False
-)
-pairs = pd.read_csv(
-    PAIRS_FILE, sep="\t", dtype=str, keep_default_na=False
-)
 
-# Map tweet IDs to their original report details.
-reports = reports.drop_duplicates("tweet_id").set_index("tweet_id")
+def safe_str(val):
+    """Safely format string for console printing on Windows terminals."""
+    if not val:
+        return ""
+    return str(val).encode(sys.stdout.encoding or "utf-8", errors="replace").decode(sys.stdout.encoding or "utf-8", errors="replace")
 
-if pairs.empty:
-    print("No candidate pairs found. Nothing to inspect.")
-else:
+
+def generate_review_pairs():
+    if not REPORTS_FILE.exists() or not PAIRS_FILE.exists():
+        print("Required files not found. Run extract.py and group.py first.")
+        return
+
+    reports = pd.read_csv(
+        REPORTS_FILE, sep="\t", dtype=str, keep_default_na=False
+    )
+    pairs = pd.read_csv(
+        PAIRS_FILE, sep="\t", dtype=str, keep_default_na=False
+    )
+
+    # Map tweet IDs to their original report details.
+    reports = reports.drop_duplicates("tweet_id").set_index("tweet_id")
+
+    if pairs.empty:
+        print("No candidate pairs found. Nothing to inspect.")
+        return
+
     rows = []
-
     for _, pair in pairs.iterrows():
         id_a = pair["tweet_id_a"]
         id_b = pair["tweet_id_b"]
@@ -34,9 +47,12 @@ else:
         a = reports.loc[id_a]
         b = reports.loc[id_b]
 
+        event_val = a.get("event_name", "") or b.get("event_name", "")
+
         rows.append({
             "tweet_id_a": id_a,
             "tweet_id_b": id_b,
+            "event_name": event_val,
             "event_a": a.get("event_name", ""),
             "event_b": b.get("event_name", ""),
             "similarity": pair["similarity"],
@@ -65,8 +81,12 @@ else:
     for _, row in review.head(10).iterrows():
         print("-" * 70)
         print("Similarity:", row["similarity"])
-        print("Event:", row["event_a"])
-        print("Category A:", row["category_a"])
-        print("Tweet A:", row["tweet_text_a"])
-        print("Category B:", row["category_b"])
-        print("Tweet B:", row["tweet_text_b"])
+        print("Event:", safe_str(row["event_name"]))
+        print("Category A:", safe_str(row["category_a"]))
+        print("Tweet A:", safe_str(row["tweet_text_a"]))
+        print("Category B:", safe_str(row["category_b"]))
+        print("Tweet B:", safe_str(row["tweet_text_b"]))
+
+
+if __name__ == "__main__":
+    generate_review_pairs()
